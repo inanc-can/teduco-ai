@@ -18,26 +18,6 @@ export default async function Page() {
   const cookieStore = await cookies();
   const modelIdFromCookie = cookieStore.get("chat-model");
 
-  // For now, return a placeholder until Chat component is implemented
-  return (
-    <div className="flex h-full w-full items-center justify-center">
-      <div className="text-center">
-        <h1 className="mb-4 text-2xl font-bold">Chat Interface</h1>
-        <p className="text-muted-foreground">
-          Chat ID: {id}
-          <br />
-          Model: {modelIdFromCookie?.value || DEFAULT_CHAT_MODEL}
-          <br />
-          User: {session.user.email}
-        </p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          Chat component will be implemented next
-        </p>
-      </div>
-    </div>
-  );
-
-  // TODO: Uncomment when Chat and DataStreamHandler components are ready
   if (!modelIdFromCookie) {
     return (
       <>
