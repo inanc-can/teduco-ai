@@ -66,6 +66,7 @@ export type ChatMessage = {
   role: "user" | "assistant" | "system";
   parts: MessagePart[];
   metadata?: MessageMetadata;
+  createdAt?: Date;
 };
 
 export type DBMessage = {
