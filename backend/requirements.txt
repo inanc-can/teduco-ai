@@ -3,6 +3,7 @@ uvicorn[standard]~=0.29  # ASGI server (hot-reload, websockets, etc.)
 
 sqlalchemy~=2.0          # ORM / SQL builder
 psycopg[binary]~=3.1     # Postgres driver (binary = faster, no build tools needed)
+psycopg2-binary~=2.9
 
 python-multipart~=0.0.7  # enables FastAPI file-upload parsing
 passlib[bcrypt]~=1.7     # easy/secure password hashing
