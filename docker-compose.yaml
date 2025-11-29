@@ -1,0 +1,36 @@
+
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: teduco-user          # database role (with dash, Postgres is fine apparently)
+      POSTGRES_PASSWORD: changeme         # test pw, change for prod
+      POSTGRES_DB: teduco_db              # database name (different from user)
+    ports:
+      - "5432:5432"
+    volumes:
+      # runs init.sql exactly once on first container start
+      - ./backend/db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # actual database files for keeping data between restarts
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: ./backend        # your FastAPI Dockerfile lives here
+    depends_on:
+      - db
+    environment:
+      # Example SQLAlchemy URL. FastAPI reads it from env.
+      DATABASE_URL: postgresql://teduco-user:changeme@db:5432/teduco_db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app      # hot-reload during dev
+
+  frontend:
+    build: ./frontend/teduco-ai # this is so wrong, it needs to move to frontend, adjust later
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres_data:
