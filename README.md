@@ -1,7 +1,7 @@
 # teduco-ai
 
 Description
-Teduco is a genAI-powered education consultation tool designed to help students navigate the complexities of international education through reliable Q&A, application guidance, and personalized planning. The system provides an accessible, affordable, and trustworthy alternative to traditional consultancy services. 
+Teduco is a genAI-powered education consultation tool designed to help turkish students navigate the complexities of international education through reliable Q&A, application guidance, and personalized planning. The system provides an accessible, affordable, and trustworthy alternative to traditional consultancy services.
 
 Core Features (Use Cases)
 International Education Q&A Chatbot: Allow users to ask detailed questions about study abroad options, university requirements, tuition fees, and scholarship opportunities.
