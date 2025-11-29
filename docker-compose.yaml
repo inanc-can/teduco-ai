@@ -1,0 +1,35 @@
+
+services:
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: teduco-user
+      POSTGRES_PASSWORD: changeme      
+      POSTGRES_DB: teduco_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./backend/src/db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend               
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://teduco-user:changeme@db:5432/teduco_db
+    ports:
+      - "8000:8000"
+    volumes:                           
+      - ./backend/src:/app/src
+
+  frontend:
+    build:
+      context: ./frontend/teduco-ai    
+    ports:
+      - "3000:3000"                    
+
+volumes:
+  postgres_data:
