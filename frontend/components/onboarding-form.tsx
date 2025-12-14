@@ -124,7 +124,6 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
     watch,
     formState: { errors },
     getValues,
-    trigger,
     setError,
   } = useForm({
     defaultValues: initialFormData,
@@ -705,7 +704,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                                             className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2"
                                           >
                                             <div className="flex items-center gap-2 flex-1 min-w-0">
-                                              <div className="flex-shrink-0 w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+                                              <div className="shrink-0 w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
                                                 <span className="text-xs font-medium text-primary">
                                                   {file.name.split('.').pop()?.toUpperCase()}
                                                 </span>
@@ -722,7 +721,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                                               variant="ghost"
                                               size="sm"
                                               onClick={() => removeFile(docId, index)}
-                                              className="flex-shrink-0 h-8 w-8 p-0"
+                                              className="shrink-0 h-8 w-8 p-0"
                                             >
                                               <X className="h-4 w-4" />
                                             </Button>

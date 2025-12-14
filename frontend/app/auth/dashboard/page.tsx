@@ -4,18 +4,6 @@ import { useState, useCallback } from "react"
 
 import { cn } from "@/lib/utils"
 import { Chat } from "@/components/ui/chat"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-
-const MODELS = [
-  { id: "llama-3.3-70b-versatile", name: "Llama 3.3 70B" },
-  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B" },
-]
 
 type Message = {
   id: string
@@ -97,7 +85,6 @@ function useChat({ initialMessages = [] }: { initialMessages?: Message[] }) {
 }
 
 export default function Page(props: ChatDemoProps) {
-  const [selectedModel, setSelectedModel] = useState(MODELS[0].id)
   const {
     messages,
     input,
