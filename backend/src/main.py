@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+import os
 
 from db.lib.core import (
     create_user, delete_user,
@@ -8,6 +10,17 @@ from db.lib.core import (
 )
 
 app = FastAPI(title="Teduco API", version="0.1.0")
+
+# CORS configuration for frontend
+origins = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 #  Schemas

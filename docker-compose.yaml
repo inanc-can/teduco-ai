@@ -1,35 +1,55 @@
 
 services:
   db:
-    image: postgres:16
-    restart: always
+    image: postgres:15
     environment:
       POSTGRES_USER: teduco-user
-      POSTGRES_PASSWORD: changeme      
+      POSTGRES_PASSWORD: changeme
       POSTGRES_DB: teduco_db
     ports:
       - "5432:5432"
     volumes:
-      - ./backend/src/db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - teduco-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U teduco-user -d teduco_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
       context: ./backend               
-    depends_on:
-      - db
     environment:
       DATABASE_URL: postgresql://teduco-user:changeme@db:5432/teduco_db
+      CORS_ORIGINS: http://localhost:3000,http://frontend:3000
     ports:
       - "8000:8000"
     volumes:                           
       - ./backend/src:/app/src
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - teduco-network
 
   frontend:
     build:
-      context: ./frontend/teduco-ai    
+      context: ./frontend
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://backend:8000
     ports:
-      - "3000:3000"                    
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - teduco-network
+
+networks:
+  teduco-network:
+    driver: bridge
 
 volumes:
   postgres_data:
