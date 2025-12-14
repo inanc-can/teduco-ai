@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: changeme      
       POSTGRES_DB: teduco_db
     ports:
-      - "5432:5432"
+      - "5641:5641"
     volumes:
       - ./backend/src/db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
       - postgres_data:/var/lib/postgresql/data
@@ -27,7 +27,7 @@ services:
 
   frontend:
     build:
-      context: ./frontend/teduco-ai    
+      context: ./frontend
     ports:
       - "3000:3000"                    
 
