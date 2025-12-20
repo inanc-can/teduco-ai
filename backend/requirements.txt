@@ -1,5 +1,5 @@
 fastapi>=0.111
- uvicorn[standard]>=0.29
+uvicorn[standard]>=0.29
 
 sqlalchemy~=2.0          # ORM / SQL builder
 psycopg[binary]~=3.1     # Postgres driver (binary = faster, no build tools needed)
@@ -9,3 +9,4 @@ python-multipart~=0.0.7  # enables FastAPI file-upload parsing
 passlib[bcrypt]~=1.7     # easy/secure password hashing
 supabase>=1.2  
 python-dotenv>=1.0
+pydantic>=2.0
