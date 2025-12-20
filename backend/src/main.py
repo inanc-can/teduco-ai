@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List
 import os
 from uuid import uuid4
-from db.lib.core import upsert_user, save_university_edu, save_onboarding_preferences, upload_document, supabase
+from db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, supabase
 from core.config import get_settings
 
 app = FastAPI(title="Teduco API", version="0.1.0")
@@ -60,8 +60,12 @@ def onboarding(payload: dict, user_id: str = Depends(get_current_user)):
         current_city=payload.get("currentCity")
     )
     
-    # Save education info (university or high school)
-    save_university_edu(user_id, payload)
+    # Save education info based on applicant type
+    applicant_type = payload.get("applicantType")
+    if applicant_type == "university":
+        save_university_edu(user_id, payload)
+    elif applicant_type == "high-school":
+        save_high_school_edu(user_id, payload)
     
     # Save onboarding preferences
     save_onboarding_preferences(user_id, payload)
