@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List
 import os
 from uuid import uuid4
-from db.lib.core import upsert_user, save_university_edu, upload_document, supabase
+from db.lib.core import upsert_user, save_university_edu, save_onboarding_preferences, upload_document, supabase
 from core.config import get_settings
 
 app = FastAPI(title="Teduco API", version="0.1.0")
@@ -48,6 +48,25 @@ def get_signed_url(path: str, expires_sec: int = 60):
     )
     return res["signedURL"]
 
+@app.post("/onboarding")
+def onboarding(payload: dict, user_id: str = Depends(get_current_user)):
+    # Update user profile
+    upsert_user(
+        user_id,
+        payload["firstName"],
+        payload["lastName"],
+        phone=payload.get("phone"),
+        applicant_type=payload.get("applicantType"),
+        current_city=payload.get("currentCity")
+    )
+    
+    # Save education info (university or high school)
+    save_university_edu(user_id, payload)
+    
+    # Save onboarding preferences
+    save_onboarding_preferences(user_id, payload)
+    
+    return {"message": "ok", "user_id": user_id}
 
 
 @app.post("/onboarding/profile")

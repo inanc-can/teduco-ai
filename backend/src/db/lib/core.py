@@ -27,6 +27,19 @@ def save_university_edu(user_id: str, data: dict):
         {"user_id": user_id, **parsed}
     ).execute()
 
+# ---------- ONBOARDING PREFERENCES ----------
+def save_onboarding_preferences(user_id: str, data: dict):
+    payload = {
+        "user_id": user_id,
+        "desired_countries": data.get("desiredCountries", []),
+        "desired_fields": data.get("desiredField", []),
+        "target_programs": data.get("targetProgram", []),
+        "preferred_intake": data.get("preferredIntake"),
+        "preferred_support": data.get("preferredSupport"),
+        "additional_notes": data.get("additionalNotes"),
+    }
+    return supabase.table("onboarding_preferences").upsert(payload).execute()
+
 # ---------- DOCUMENTS ----------
 def upload_document(user_id: str, fileobj, doc_type: str, mime: str):
     path = f"{user_id}/{uuid4()}"
