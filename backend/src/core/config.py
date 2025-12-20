@@ -1,9 +1,8 @@
 from functools import lru_cache
-from pydantic import BaseSettings
+from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     supabase_url: str
-    supabase_anon_key: str
     supabase_service_key: str
     supabase_bucket: str = "user-documents"
 
