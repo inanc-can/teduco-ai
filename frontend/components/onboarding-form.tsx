@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Check, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Check, Loader2, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,6 +28,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import Multiselect, { type Option } from "@/components/ui/multiselect";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { getStepSchema, type OnboardingFormValues } from "@/lib/schemas/onboarding";
 
 const steps = [
   { id: "personal", title: "Personal" },
@@ -66,47 +68,16 @@ const fieldOptions = ["Computer Science", "Engineering", "Business", "Medicine",
 const programOptions = ["Bachelor's", "Master's", "PhD", "Exchange", "Other"];
 const intakeOptions = ["Fall 2025", "Spring 2026", "Fall 2026", "Spring 2027"];
 
-interface FormData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  applicantType: ApplicantType | "";
-  currentCity: string;
-  desiredCountries: string[];
-  desiredField: string[];
-  targetProgram: string[];
-  preferredIntake: string;
-  highSchoolName: string;
-  highSchoolGPA: string;
-  highSchoolGPAScale: string;
-  highSchoolGradYear: string;
-  yksPlaced: string;
-  extracurriculars: string;
-  scholarshipInterest: string;
-  universityName: string;
-  universityProgram: string;
-  universityGPA: string;
-  creditsCompleted: string;
-  expectedGraduation: string;
-  studyMode: string;
-  researchFocus: string;
-  portfolioLink: string;
-  preferredSupport: string;
-  documents: string[];
-  additionalNotes: string;
-}
-
 interface OnboardingFormProps {
-  onComplete?: (data: FormData) => void;
+  onComplete?: (data: OnboardingFormValues) => void;
 }
 
-const initialFormData: FormData = {
+const initialFormData: Partial<OnboardingFormValues> = {
   firstName: "",
   lastName: "",
   email: "",
   phone: "",
-  applicantType: "",
+  applicantType: undefined,
   currentCity: "",
   desiredCountries: [],
   desiredField: [],
@@ -117,8 +88,6 @@ const initialFormData: FormData = {
   highSchoolGPAScale: "",
   highSchoolGradYear: "",
   yksPlaced: "",
-  extracurriculars: "",
-  scholarshipInterest: "",
   universityName: "",
   universityProgram: "",
   universityGPA: "",
@@ -146,37 +115,71 @@ const contentVariants = {
 const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState<FormData>(initialFormData);
+  const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({});
+  
+  const {
+    control,
+    register,
+    handleSubmit: rhfHandleSubmit,
+    watch,
+    formState: { errors },
+    getValues,
+    setError,
+  } = useForm({
+    defaultValues: initialFormData,
+    mode: "onChange",
+  });
 
-  const applicantType = formData.applicantType as ApplicantType;
+  const formData = watch();
+
+  const applicantType = formData.applicantType as ApplicantType | undefined;
   const documentsList = applicantType ? DOCUMENT_REQUIREMENTS[applicantType] : DOCUMENT_REQUIREMENTS["high-school"];
   const highSchoolPath = applicantType === "high-school";
   const universityPath = applicantType === "university";
+  const selectedDocuments = formData.documents || [];
 
-  const updateFormData = (field: keyof FormData, value: string | string[]) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+  const handleFileUpload = (documentId: string, files: FileList | null) => {
+    if (!files) return;
+    
+    const fileArray = Array.from(files);
+    setDocumentFiles(prev => ({
+      ...prev,
+      [documentId]: [...(prev[documentId] || []), ...fileArray]
+    }));
   };
 
-  const toggleDocument = (id: string) => {
-    setFormData((prev) => {
-      const collection = prev.documents.includes(id)
-        ? prev.documents.filter((doc) => doc !== id)
-        : [...prev.documents, id];
-      return { ...prev, documents: collection };
-    });
+  const removeFile = (documentId: string, fileIndex: number) => {
+    setDocumentFiles(prev => ({
+      ...prev,
+      [documentId]: prev[documentId].filter((_, index) => index !== fileIndex)
+    }));
   };
 
-  const toggleMultiSelect = (field: keyof FormData, value: string) => {
-    setFormData((prev) => {
-      const current = prev[field] as string[];
-      const updated = current.includes(value)
-        ? current.filter((item) => item !== value)
-        : [...current, value];
-      return { ...prev, [field]: updated };
-    });
-  };
-
-  const nextStep = () => {
+  const nextStep = async () => {
+    const stepSchema = getStepSchema(currentStep, applicantType);
+    const values = getValues();
+    console.log("Validating step", currentStep, "with values:", values);
+    const result = stepSchema.safeParse(values);
+    
+    if (!result.success) {
+      console.log("Validation errors:", result.error.flatten().fieldErrors);
+      // Set errors in react-hook-form so they display under fields
+      const fieldErrors = result.error.flatten().fieldErrors;
+      Object.entries(fieldErrors).forEach(([field, messages]) => {
+        if (messages && messages.length > 0) {
+          setError(field as any, {
+            type: "manual",
+            message: messages[0],
+          });
+        }
+      });
+      
+      // Also show toast
+      toast.error("Please complete all required fields");
+      return;
+    }
+    
+    console.log("Validation passed, moving to next step");
     if (currentStep < steps.length - 1) {
       setCurrentStep((prev) => prev + 1);
     }
@@ -188,59 +191,39 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
     }
   };
 
-  const handleSubmit = () => {
+  const handleFormSubmit = async (data: Record<string, unknown>) => {
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      const res = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      
+      if (!res.ok) {
+        throw new Error("Failed to submit");
+      }
+      
       toast.success("We saved your intake—our counselors will follow up in Turkish shortly.");
+      onComplete?.(data as OnboardingFormValues);
+    } catch (error) {
+      console.error("Submission error:", error);
+      toast.error("Submission failed. Please try again.");
+    } finally {
       setIsSubmitting(false);
-      onComplete?.(formData);
-    }, 1500);
-  };
-
-  const isStepValid = () => {
-    switch (currentStep) {
-      case 0:
-        return formData.firstName.trim() !== "" && formData.lastName.trim() !== "" && formData.email.trim() !== "";
-      case 1:
-        return (
-          formData.applicantType !== "" &&
-          formData.currentCity.trim() !== "" &&
-          formData.desiredCountries.length > 0 &&
-          formData.desiredField.length > 0 &&
-          formData.targetProgram.length > 0
-        );
-      case 2:
-        if (highSchoolPath) {
-          return (
-            formData.highSchoolName.trim() !== "" &&
-            formData.highSchoolGPA.trim() !== "" &&
-            formData.highSchoolGradYear.trim() !== ""
-          );
-        }
-        if (universityPath) {
-          return (
-            formData.universityName.trim() !== "" &&
-            formData.universityProgram.trim() !== "" &&
-            formData.universityGPA.trim() !== "" &&
-            formData.creditsCompleted.trim() !== ""
-          );
-        }
-        return false;
-      case 3:
-        return formData.documents.length > 0;
-      default:
-        return true;
     }
   };
 
+
+
   const summaryRows = [
-    { label: "Applicant", value: `${formData.firstName} ${formData.lastName}`.trim() },
-    { label: "Email", value: formData.email },
-    { label: "City", value: formData.currentCity },
-    { label: "Target Countries", value: formData.desiredCountries.join(", ") },
-    { label: "Fields", value: formData.desiredField.join(", ") },
-    { label: "Programs", value: formData.targetProgram.join(", ") },
-    { label: "Intake", value: formData.preferredIntake },
+    { label: "Applicant", value: `${formData.firstName || ''} ${formData.lastName || ''}`.trim() },
+    { label: "Email", value: formData.email || '' },
+    { label: "City", value: formData.currentCity || '' },
+    { label: "Target Countries", value: (formData.desiredCountries || []).join(", ") },
+    { label: "Fields", value: (formData.desiredField || []).join(", ") },
+    { label: "Programs", value: (formData.targetProgram || []).join(", ") },
+    { label: "Intake", value: formData.preferredIntake || '' },
   ];
 
   return (
@@ -293,20 +276,20 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                           <Input
                             id="firstName"
                             placeholder="Ayşe"
-                            value={formData.firstName}
                             className="mt-2"
-                            onChange={(e) => updateFormData("firstName", e.target.value)}
+                            {...register("firstName")}
                           />
+                          {errors.firstName && <p className="text-xs text-red-500">{errors.firstName.message}</p>}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="lastName">Last name</Label>
                           <Input
                             id="lastName"
                             placeholder="Yılmaz"
-                            value={formData.lastName}
                             className="mt-2"
-                            onChange={(e) => updateFormData("lastName", e.target.value)}
+                            {...register("lastName")}
                           />
+                          {errors.lastName && <p className="text-xs text-red-500">{errors.lastName.message}</p>}
                         </div>
                       </motion.div>
                       <motion.div variants={fadeInUp} className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -316,20 +299,20 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                             id="email"
                             type="email"
                             placeholder="ayse@example.com"
-                            value={formData.email}
                             className="mt-2"
-                            onChange={(e) => updateFormData("email", e.target.value)}
+                            {...register("email")}
                           />
+                          {errors.email && <p className="text-xs text-red-500">{errors.email.message}</p>}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="phone">Phone / WhatsApp</Label>
                           <Input
                             id="phone"
                             placeholder="0505 123 45 67"
-                            value={formData.phone}
                             className="mt-2"
-                            onChange={(e) => updateFormData("phone", e.target.value)}
+                            {...register("phone")}
                           />
+                          {errors.phone && <p className="text-xs text-red-500">{errors.phone.message}</p>}
                         </div>
                       </motion.div>
                     </CardContent>
@@ -345,79 +328,104 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                     <CardContent className="space-y-4">
                       <motion.div variants={fadeInUp} className="space-y-2">
                         <Label>Applying from</Label>
-                        <RadioGroup
-                          className="grid gap-3"
-                          value={formData.applicantType}
-                          onValueChange={(value) => updateFormData("applicantType", value)}
-                        >
-                          <label className="flex items-start gap-3 rounded-xl border px-4 py-3">
-                            <RadioGroupItem value="high-school" id="type-hs" />
-                            <div>
-                              <p className="font-semibold">High school student</p>
-                              <p className="text-xs text-muted-foreground">Applying for undergraduate programs directly out of high school.</p>
-                            </div>
-                          </label>
-                          <label className="flex items-start gap-3 rounded-xl border px-4 py-3">
-                            <RadioGroupItem value="university" id="type-uni" />
-                            <div>
-                              <p className="font-semibold">University student</p>
-                              <p className="text-xs text-muted-foreground">Transferring, continuing, or doing a dual degree abroad.</p>
-                            </div>
-                          </label>
-                        </RadioGroup>
+                        <Controller
+                          name="applicantType"
+                          control={control}
+                          render={({ field }) => (
+                            <RadioGroup
+                              className="grid gap-3"
+                              value={field.value}
+                              onValueChange={field.onChange}
+                            >
+                              <label className="flex items-center gap-3 rounded-xl border px-4 py-3">
+                              <RadioGroupItem value="high-school" id="type-hs" />
+                              <div>
+                                <p className="font-semibold">High school student</p>
+                                <p className="text-xs text-muted-foreground">Applying for undergraduate programs directly out of high school.</p>
+                              </div>
+                              </label>
+                              <label className="flex items-center gap-3 rounded-xl border px-4 py-3">
+                              <RadioGroupItem value="university" id="type-uni" />
+                              <div>
+                                <p className="font-semibold">University student</p>
+                                <p className="text-xs text-muted-foreground">Transferring, continuing, or doing a dual degree abroad.</p>
+                              </div>
+                              </label>
+                            </RadioGroup>
+                          )}
+                        />
+                        {errors.applicantType && <p className="text-xs text-red-500">{errors.applicantType.message}</p>}
                       </motion.div>
                       <motion.div variants={fadeInUp} className="grid grid-cols-1 gap-4">
                         <div className="space-y-2">
-                          <Label htmlFor="currentCity">Current city</Label>
-                          <Input
-                            id="currentCity"
-                            placeholder="İstanbul"
-                            value={formData.currentCity}
-                            onChange={(e) => updateFormData("currentCity", e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
                           <Label htmlFor="desiredCountries">Preferred countries</Label>
-                          <Multiselect
-                            options={countryOptions.map(country => ({ label: country, value: country }))}
-                            value={formData.desiredCountries.map(country => ({ label: country, value: country }))}
-                            onChange={(options: Option[]) => updateFormData("desiredCountries", options.map(o => o.value))}
-                            placeholder="Select countries"
+                          <Controller
+                            name="desiredCountries"
+                            control={control}
+                            render={({ field }) => (
+                              <Multiselect
+                                options={countryOptions.map(country => ({ label: country, value: country }))}
+                                value={(field.value || []).map(country => ({ label: country, value: country }))}
+                                onChange={(options: Option[]) => field.onChange(options.map(o => o.value))}
+                                placeholder="Select countries"
+                              />
+                            )}
                           />
+                          {errors.desiredCountries && <p className="text-xs text-red-500">{errors.desiredCountries.message}</p>}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="desiredField">Field / major</Label>
-                          <Multiselect
-                            options={fieldOptions.map(field => ({ label: field, value: field }))}
-                            value={formData.desiredField.map(field => ({ label: field, value: field }))}
-                            onChange={(options: Option[]) => updateFormData("desiredField", options.map(o => o.value))}
-                            placeholder="Select fields"
+                          <Controller
+                            name="desiredField"
+                            control={control}
+                            render={({ field }) => (
+                              <Multiselect
+                                options={fieldOptions.map(f => ({ label: f, value: f }))}
+                                value={(field.value || []).map(f => ({ label: f, value: f }))}
+                                onChange={(options: Option[]) => field.onChange(options.map(o => o.value))}
+                                placeholder="Select fields"
+                              />
+                            )}
                           />
+                          {errors.desiredField && <p className="text-xs text-red-500">{errors.desiredField.message}</p>}
                         </div>
                         <div className="space-y-2">
                           <Label htmlFor="targetProgram">Target program</Label>
-                          <Multiselect
-                            options={programOptions.map(program => ({ label: program, value: program }))}
-                            value={formData.targetProgram.map(program => ({ label: program, value: program }))}
-                            onChange={(options: Option[]) => updateFormData("targetProgram", options.map(o => o.value))}
-                            placeholder="Select programs"
+                          <Controller
+                            name="targetProgram"
+                            control={control}
+                            render={({ field }) => (
+                              <Multiselect
+                                options={programOptions.map(program => ({ label: program, value: program }))}
+                                value={(field.value || []).map(program => ({ label: program, value: program }))}
+                                onChange={(options: Option[]) => field.onChange(options.map(o => o.value))}
+                                placeholder="Select programs"
+                              />
+                            )}
                           />
+                          {errors.targetProgram && <p className="text-xs text-red-500">{errors.targetProgram.message}</p>}
                         </div>
                         <div className="grid gap-4 md:grid-cols-2">
                           <div className="space-y-2">
                             <Label>Preferred intake</Label>
-                            <Select value={formData.preferredIntake} onValueChange={(value) => updateFormData("preferredIntake", value)}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Choose intake" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {intakeOptions.map((option) => (
-                                  <SelectItem key={option} value={option}>
-                                    {option}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <Controller
+                              name="preferredIntake"
+                              control={control}
+                              render={({ field }) => (
+                                <Select value={field.value} onValueChange={field.onChange}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Choose intake" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {intakeOptions.map((option) => (
+                                      <SelectItem key={option} value={option}>
+                                        {option}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            />
                           </div>
                         </div>
                       </motion.div>
@@ -441,9 +449,9 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                           <Input
                             id="highSchoolName"
                             placeholder="Koç Lisesi"
-                            value={formData.highSchoolName}
-                            onChange={(e) => updateFormData("highSchoolName", e.target.value)}
+                            {...register("highSchoolName")}
                           />
+                          {errors.highSchoolName && <p className="text-xs text-red-500">{errors.highSchoolName.message}</p>}
                         </div>
                           <div className="grid grid-cols-2 gap-2">
                             <div className="space-y-2">
@@ -451,23 +459,27 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Input
                                 id="highSchoolGPA"
                                 placeholder="85"
-                                value={formData.highSchoolGPA}
-                                onChange={(e) => updateFormData("highSchoolGPA", e.target.value)}
+                                {...register("highSchoolGPA")}
                               />
+                              {errors.highSchoolGPA && <p className="text-xs text-red-500">{errors.highSchoolGPA.message}</p>}
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="highSchoolGPAScale">Scale</Label>
-                              <Select value={formData.highSchoolGPAScale} onValueChange={(value) => updateFormData("highSchoolGPAScale", value)}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="/ 100" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="100">Out of 100</SelectItem>
-                                  <SelectItem value="4.0">Out of 4.0</SelectItem>
-                                  <SelectItem value="5.0">Out of 5.0</SelectItem>
-                                  <SelectItem value="IB">IB Score</SelectItem>
-                                </SelectContent>
-                              </Select>
+                              <Controller
+                                name="highSchoolGPAScale"
+                                control={control}
+                                render={({ field }) => (
+                                  <Select value={field.value} onValueChange={field.onChange}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="/ 100" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="100">Out of 100</SelectItem>
+                                      <SelectItem value="IB">IB Score</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              />
                             </div>
                           </div>
 
@@ -476,42 +488,30 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                             <Input
                               id="highSchoolGradYear"
                               placeholder="2024"
-                              value={formData.highSchoolGradYear}
-                              onChange={(e) => updateFormData("highSchoolGradYear", e.target.value)}
+                              {...register("highSchoolGradYear")}
                             />
+                            {errors.highSchoolGradYear && <p className="text-xs text-red-500">{errors.highSchoolGradYear.message}</p>}
                           </div>
 
                           <div className="space-y-2">
                             <Label>YKS (University Exam) Placement?</Label>
-                            <Select value={formData.yksPlaced} onValueChange={(value) => updateFormData("yksPlaced", value)}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select status" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="yes">Yes, I have been placed</SelectItem>
-                                <SelectItem value="no">No, not yet / not planning</SelectItem>
-                                <SelectItem value="student">I am already a uni student</SelectItem>
-                              </SelectContent>
-                            </Select>
+                            <Controller
+                              name="yksPlaced"
+                              control={control}
+                              render={({ field }) => (
+                                <Select value={field.value} onValueChange={field.onChange}>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select status" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="yes">Yes, I have been placed</SelectItem>
+                                    <SelectItem value="no">No, not yet / not planning</SelectItem>
+                                    <SelectItem value="student">I am already a uni student</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            />
                             <p className="text-[10px] text-muted-foreground">Crucial for Germany/Austria applications.</p>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="extracurriculars">Extracurriculars or awards</Label>
-                            <Textarea
-                              id="extracurriculars"
-                              placeholder="Model United Nations, robotics club, Turkish Olympiad"
-                              value={formData.extracurriculars}
-                              onChange={(e) => updateFormData("extracurriculars", e.target.value)}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="scholarshipInterest">Scholarship interest?</Label>
-                            <Input
-                              id="scholarshipInterest"
-                              placeholder="Need tuition-free options, partial scholarships"
-                              value={formData.scholarshipInterest}
-                              onChange={(e) => updateFormData("scholarshipInterest", e.target.value)}
-                            />
                           </div>
                         </motion.div>
                       )}
@@ -523,18 +523,18 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Input
                                 id="universityName"
                                 placeholder="Middle East Technical University"
-                                value={formData.universityName}
-                                onChange={(e) => updateFormData("universityName", e.target.value)}
+                                {...register("universityName")}
                               />
+                              {errors.universityName && <p className="text-xs text-red-500">{errors.universityName.message}</p>}
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="universityProgram">Program/location</Label>
                               <Input
                                 id="universityProgram"
                                 placeholder="Civil Engineering, Ankara"
-                                value={formData.universityProgram}
-                                onChange={(e) => updateFormData("universityProgram", e.target.value)}
+                                {...register("universityProgram")}
                               />
+                              {errors.universityProgram && <p className="text-xs text-red-500">{errors.universityProgram.message}</p>}
                             </div>
                           </div>
                           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -543,18 +543,18 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Input
                                 id="universityGPA"
                                 placeholder="3.40 / 3.5"
-                                value={formData.universityGPA}
-                                onChange={(e) => updateFormData("universityGPA", e.target.value)}
+                                {...register("universityGPA")}
                               />
+                              {errors.universityGPA && <p className="text-xs text-red-500">{errors.universityGPA.message}</p>}
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="creditsCompleted">Credits completed</Label>
                               <Input
                                 id="creditsCompleted"
                                 placeholder="90 ECTS / 60 US"
-                                value={formData.creditsCompleted}
-                                onChange={(e) => updateFormData("creditsCompleted", e.target.value)}
+                                {...register("creditsCompleted")}
                               />
+                              {errors.creditsCompleted && <p className="text-xs text-red-500">{errors.creditsCompleted.message}</p>}
                             </div>
                           </div>
                           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -563,24 +563,29 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Input
                                 id="expectedGraduation"
                                 placeholder="June 2025"
-                                value={formData.expectedGraduation}
-                                onChange={(e) => updateFormData("expectedGraduation", e.target.value)}
+                                {...register("expectedGraduation")}
                               />
                             </div>
                             <div className="space-y-2">
                               <Label htmlFor="studyMode">Study mode</Label>
-                              <Select value={formData.studyMode} onValueChange={(value) => updateFormData("studyMode", value)}>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select mode" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {["Full-time", "Part-time", "Dual degree", "Exchange", "Other"].map((option) => (
-                                    <SelectItem key={option} value={option}>
-                                      {option}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
+                              <Controller
+                                name="studyMode"
+                                control={control}
+                                render={({ field }) => (
+                                  <Select value={field.value} onValueChange={field.onChange}>
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select mode" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {["Full-time", "Part-time", "Dual degree", "Exchange", "Other"].map((option) => (
+                                        <SelectItem key={option} value={option}>
+                                          {option}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                )}
+                              />
                             </div>
                           </div>
                           <div className="space-y-2">
@@ -588,8 +593,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                             <Textarea
                               id="researchFocus"
                               placeholder="Artificial intelligence, urban policy, renewable energy"
-                              value={formData.researchFocus}
-                              onChange={(e) => updateFormData("researchFocus", e.target.value)}
+                              {...register("researchFocus")}
                             />
                           </div>
                           <div className="space-y-2">
@@ -597,8 +601,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                             <Input
                               id="portfolioLink"
                               placeholder="https://github.com/ayse"
-                              value={formData.portfolioLink}
-                              onChange={(e) => updateFormData("portfolioLink", e.target.value)}
+                              {...register("portfolioLink")}
                             />
                           </div>
                         </motion.div>
@@ -616,39 +619,130 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                     <CardContent className="space-y-4">
                       <motion.div variants={fadeInUp} className="space-y-2">
                         <Label>Documents on hand</Label>
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {documentsList.map((document) => (
-                            <label
-                              key={document.id}
-                              className={cn(
-                                "flex flex-col gap-2 rounded-2xl border p-4",
-                                formData.documents.includes(document.id)
-                                  ? "border-primary bg-primary/5"
-                                  : "border-border"
-                              )}
-                            >
-                              <div className="flex items-center gap-2">
-                                <Checkbox
-                                  id={`doc-${document.id}`}
-                                  checked={formData.documents.includes(document.id)}
-                                  onCheckedChange={() => toggleDocument(document.id)}
-                                />
-                                <div>
-                                  <p className="font-semibold">{document.label}</p>
-                                  <p className="text-xs text-muted-foreground">{document.detail}</p>
-                                </div>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
+                        <Controller
+                          name="documents"
+                          control={control}
+                          render={({ field }) => (
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {documentsList.map((document) => (
+                                <label
+                                  key={document.id}
+                                  className={cn(
+                                    "flex flex-col gap-2 rounded-2xl border p-4 cursor-pointer",
+                                    (field.value || []).includes(document.id)
+                                      ? "border-primary bg-primary/5"
+                                      : "border-border"
+                                  )}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`doc-${document.id}`}
+                                      checked={(field.value || []).includes(document.id)}
+                                      onCheckedChange={(checked) => {
+                                        const current = field.value || [];
+                                        if (checked) {
+                                          field.onChange([...current, document.id]);
+                                        } else {
+                                          field.onChange(current.filter((id) => id !== document.id));
+                                        }
+                                      }}
+                                    />
+                                    <div>
+                                      <p className="font-semibold">{document.label}</p>
+                                      <p className="text-xs text-muted-foreground">{document.detail}</p>
+                                    </div>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        />
+                        {errors.documents && <p className="text-xs text-red-500">{errors.documents.message}</p>}
                       </motion.div>
+
+                      {selectedDocuments.length > 0 && (
+                        <motion.div variants={fadeInUp} className="space-y-4">
+                          <Label>Upload your documents</Label>
+                          <div className="space-y-3">
+                            {selectedDocuments.map((docId) => {
+                              const document = documentsList.find(d => d.id === docId);
+                              if (!document) return null;
+                              
+                              return (
+                                <div key={docId} className="rounded-2xl border p-4 space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="font-semibold text-sm">{document.label}</p>
+                                      <p className="text-xs text-muted-foreground">{document.detail}</p>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                    <label 
+                                      htmlFor={`file-${docId}`}
+                                      className="flex items-center justify-center gap-2 w-full rounded-lg border-2 border-dashed border-muted-foreground/25 p-4 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                                    >
+                                      <Upload className="h-4 w-4 text-muted-foreground" />
+                                      <span className="text-sm text-muted-foreground">
+                                        Click to upload or drag and drop
+                                      </span>
+                                      <input
+                                        id={`file-${docId}`}
+                                        type="file"
+                                        multiple
+                                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                                        className="hidden"
+                                        onChange={(e) => handleFileUpload(docId, e.target.files)}
+                                      />
+                                    </label>
+                                    
+                                    {documentFiles[docId]?.length > 0 && (
+                                      <div className="space-y-2">
+                                        {documentFiles[docId].map((file, index) => (
+                                          <div 
+                                            key={index}
+                                            className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2"
+                                          >
+                                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                                              <div className="shrink-0 w-8 h-8 rounded bg-primary/10 flex items-center justify-center">
+                                                <span className="text-xs font-medium text-primary">
+                                                  {file.name.split('.').pop()?.toUpperCase()}
+                                                </span>
+                                              </div>
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-medium truncate">{file.name}</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                  {(file.size / 1024).toFixed(1)} KB
+                                                </p>
+                                              </div>
+                                            </div>
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => removeFile(docId, index)}
+                                              className="shrink-0 h-8 w-8 p-0"
+                                            >
+                                              <X className="h-4 w-4" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+
                       <motion.div variants={fadeInUp} className="space-y-2">
                         <Label htmlFor="preferredSupport">How can we support?</Label>
                         <Textarea
                           id="preferredSupport"
                           placeholder="Study plan, visa consulting, scholarship search, etc."
-                          value={formData.preferredSupport}
-                          onChange={(e) => updateFormData("preferredSupport", e.target.value)}
+                          {...register("preferredSupport")}
                         />
                       </motion.div>
                     </CardContent>
@@ -675,8 +769,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                         <Textarea
                           id="additionalNotes"
                           placeholder="Anything else we should communicate to the counselor?"
-                          value={formData.additionalNotes}
-                          onChange={(e) => updateFormData("additionalNotes", e.target.value)}
+                          {...register("additionalNotes")}
                         />
                       </motion.div>
                     </CardContent>
@@ -693,8 +786,8 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button
                   type="button"
-                  onClick={currentStep === steps.length - 1 ? handleSubmit : nextStep}
-                  disabled={!isStepValid() || isSubmitting}
+                  onClick={currentStep === steps.length - 1 ? rhfHandleSubmit(handleFormSubmit) : nextStep}
+                  disabled={isSubmitting}
                   className="flex items-center gap-1"
                 >
                   {isSubmitting ? (

@@ -49,6 +49,28 @@ const FEATURES = [
   },
 ]
 
+const FAQ = [
+  {
+    q: "How does Teduco use AI to help with applications?",
+    a: "Teduco uses AI to provide instant answers, personalized university matches, and feedback on application documents by synthesizing verified university data and best-practice guidance.",
+  },
+  {
+    q: "Is Teduco free to use?",
+    a: "You can get started for free. Some premium features such as in-depth document review or personalized coaching may require a paid plan.",
+  },
+  {
+    q: "Which countries and languages are supported?",
+    a: "We currently support guidance for a wide range of international universities and provide help in English and Turkish. More languages and regions will be added over time.",
+  },
+  {
+    q: "How accurate is the information provided?",
+    a: "Answers are sourced from official university databases and verified resources, but we still recommend double-checking official university pages for final confirmation.",
+  },
+  {
+    q: "Can Teduco review my Statement of Purpose or CV?",
+    a: "Yes — our AI provides feedback and suggestions to improve clarity, structure, and impact. Human expert review is available as a premium service.",
+  },
+]
 
 export default function Home() {
   return (
@@ -179,6 +201,30 @@ export default function Home() {
                 </Link>
               </Button>
             </div>
+        </div>
+      </section>
+
+      <section id="faq" className="py-20 px-4 bg-zinc-50 dark:bg-zinc-950">
+        <div className="container mx-auto max-w-6xl">
+          <div className="mx-auto mb-12 max-w-2xl text-center">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">Frequently Asked Questions</h2>
+            <p className="text-muted-foreground">Answers to common questions about Teduco and our services.</p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {FAQ.map((item) => (
+              <details
+                key={item.q}
+                className="group bg-white dark:bg-zinc-900 p-6 rounded-lg border border-zinc-200 dark:border-zinc-800"
+              >
+                <summary className="cursor-pointer select-none text-lg font-medium flex items-center justify-between">
+                  {item.q}
+                  <ChevronDown className="w-5 h-5 ml-4 text-muted-foreground group-open:rotate-180 transition-transform" />
+                </summary>
+                <div className="mt-4 text-sm text-muted-foreground">{item.a}</div>
+              </details>
+            ))}
+          </div>
         </div>
       </section>
 

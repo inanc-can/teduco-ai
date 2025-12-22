@@ -1,35 +1,34 @@
-
 services:
-  db:
-    image: postgres:16
-    restart: always
-    environment:
-      POSTGRES_USER: teduco-user
-      POSTGRES_PASSWORD: changeme      
-      POSTGRES_DB: teduco_db
-    ports:
-      - "5641:5641"
-    volumes:
-      - ./backend/src/db/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      - postgres_data:/var/lib/postgresql/data
-
   backend:
     build:
-      context: ./backend               
-    depends_on:
-      - db
+      context: ./backend
+    # we pull vars from .env so we never hard-code keys
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgresql://teduco-user:changeme@db:5432/teduco_db
+      # only backend-specific envs go here
+      CORS_ORIGINS: http://localhost:3000,http://frontend:3000
     ports:
       - "8000:8000"
-    volumes:                           
-      - ./backend/src:/app/src
+    volumes:
+      - ./backend/src:/app/src        # live-reload in dev
+    networks:
+      - teduco-network
 
   frontend:
     build:
       context: ./frontend
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://backend:8000   # REST calls
     ports:
-      - "3000:3000"                    
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - teduco-network
 
-volumes:
-  postgres_data:
+networks:
+  teduco-network:
+    driver: bridge

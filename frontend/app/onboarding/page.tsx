@@ -26,10 +26,6 @@ export default function OnboardingPage() {
                 <li>Access your dashboard to chat with Teduco AI and track progress.</li>
               </ul>
             </div>
-            <div className="mt-8 rounded-2xl bg-muted p-4 text-sm">
-              <p className="font-semibold text-foreground">Need help?</p>
-              <p className="text-muted-foreground">Reach us at support@teduco.ai — we usually reply within 24 hours.</p>
-            </div>
           </div>
         </div>
         <div className="w-full lg:w-3/5">
