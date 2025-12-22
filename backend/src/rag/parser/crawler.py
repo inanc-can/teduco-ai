@@ -15,7 +15,7 @@ from langchain_community.document_loaders import WebBaseLoader
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))          # .../rag/parser
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))   # .../rag
 sys.path.append(PROJECT_ROOT)
-from chunker.langchain_splitters import MarkdownHeaderSplitter
+from chunker.langchain_splitters import MarkdownSplitter
 
 
 logging.basicConfig(
@@ -57,11 +57,10 @@ class TumDegreeParser:
         self.data_dir.mkdir(exist_ok=True)
         self.notify(f"{self.data_dir} created.")
         self.soup: Optional[bs4.BeautifulSoup] = None
-        self.pdf_parser = DoclingPDFParser()
+        self.pdf_parser = DoclingPDFParser(force_full_page_ocr=True)
         self.bluebox: Dict[str, Any] = {}
         self.accordion: Dict[str, Any] = {}
-        self.md_header_splitter = MarkdownHeaderSplitter()
-        
+        self.md_splitter = MarkdownSplitter(chunk_size=1000, chunk_overlap=150)
 
     def notify(self, message: str) -> None:
         """Log a message like a print statement."""
@@ -212,11 +211,12 @@ class TumDegreeParser:
                 href_suffix = str(child.select("ul li a")[1]["href"])
 
                 # download aptitude assessment pdf
+                file_name = "aptitude-assessment-de"
                 slug_url = f"{self.base_url}{self.detail_suffix}{program_slug}"
                 download_url = urljoin(slug_url, href_suffix)
                 output_dir = self.data_dir / program_slug
                 output_dir.mkdir(exist_ok=True)
-                output_path = self.data_dir / f"{program_slug}/aptitude-assessment-de.pdf"
+                output_path = self.data_dir / f"{program_slug}/{file_name}.pdf"
                 
                 # download_pdf returns raw bytes; set write_to_disk=True to also save file
                 pdf_bytes = self.download_pdf(download_url, output_path, write_to_disk=True)
@@ -226,8 +226,8 @@ class TumDegreeParser:
                     conversion = self.pdf_parser.convert_document(pdf_bytes)
                     # optionally export markdown
                     try:
-                        md = self.pdf_parser.conversion_to_markdown(conversion, output_dir)
-                        self.md_header_splitter.split_and_export(md, output_dir)
+                        md = self.pdf_parser.conversion_to_markdown(conversion, output_dir, file_name)
+                        self.md_splitter.split_and_export(md, output_dir, file_name=file_name, doc_type="aptitude-assessment")
                         self.notify(f"Converted PDF to markdown for {program_slug}.")
                     except Exception as e:
                         logging.exception("Markdown export failed")
@@ -284,6 +284,7 @@ class TumDegreeParser:
         Save parsed data into a JSON file.
 
         Args:
+            data: Dictionary of parsed degree information.
             path (Path): Output file path.
         """
         output_dir = self.data_dir / program_slug
@@ -298,7 +299,7 @@ def scrape_all(program_slugs):
     parser = argparse.ArgumentParser(description="Run crawler")
     parser.add_argument("--data-dir", help="Path to crawler data dir.")
     args = parser.parse_args()
-    data_dir = args.data_dir or "backend/src/rag/data"
+    data_dir = args.data_dir or os.getenv("DATA_DIR") or "backend/src/rag/data"
     parser = TumDegreeParser(data_dir=data_dir)
     for ps in program_slugs:
         parser.load_by_slug(ps)
