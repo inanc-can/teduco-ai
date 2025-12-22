@@ -1,31 +1,11 @@
-# --- Base Runtime / Kernel ---
-ipykernel==7.1.0
-dotenv==0.9.9
-
 # --- LangChain / RAG ---
 langchain==1.1.0
 langchain-community==0.4.1
-langchain-openai==1.1.0
 
 # --- Parsing / HTML / XML ---
-pdfplumber==0.11.8
 beautifulsoup4==4.14.2
-lxml==6.0.2
 
-# --- NLP / Text ---
-sentencepiece==0.2.1
-sacremoses==0.1.1
-
-# --- Deep Learning ---
-torch==2.9.1
-transformers==4.57.3
-sentence-transformers==5.1.2
-
-# --- Unstructured & OCR ---
-unstructured[local-inference]==0.18.21
-pdf2image==1.17.0
-pillow==11.3.0
-pi-heif==1.1.1
+# --- Docling & OCR ---
 easyocr==1.7.2
 docling==2.63.0
 
