@@ -45,6 +45,7 @@ interface ChatPropsWithoutSuggestions extends ChatPropsBase {
 interface ChatPropsWithSuggestions extends ChatPropsBase {
   append: (message: { role: "user"; content: string }) => void
   suggestions: string[]
+  welcomeMessage?: string
 }
 
 type ChatProps = ChatPropsWithoutSuggestions | ChatPropsWithSuggestions
@@ -58,6 +59,7 @@ export function Chat({
   isGenerating,
   append,
   suggestions,
+  welcomeMessage,
   className,
   onRateResponse,
   setMessages,
@@ -196,7 +198,7 @@ export function Chat({
       {isEmpty && append && suggestions ? (
         <div className="flex flex-col items-center justify-center animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
           <PromptSuggestions
-            label="Teduco'ya Hoşgeldin"
+            label={welcomeMessage || "Teduco'ya Hoşgeldin"}
             append={append}
             suggestions={suggestions}
           />

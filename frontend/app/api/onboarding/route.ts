@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { onboardingSchema } from "@/lib/schemas/onboarding";
-import { api, isApiError } from "@/lib/api-client";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!
+);
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,20 +23,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Forward to FastAPI backend using api-client
-    const data = await api.onboarding.submit(validation.data);
-    
+    // Get auth token from request
+    const authHeader = request.headers.get("authorization");
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
+
+    // Forward to FastAPI backend with auth header
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    const response = await fetch(`${backendUrl}/onboarding`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify(validation.data),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return NextResponse.json(
+        { error: errorData.error || errorData.detail || "Backend request failed" },
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
     return NextResponse.json(data, { status: 201 });
   } catch (error) {
     console.error("API route error:", error);
-    
-    // Handle ApiError with proper status codes
-    if (isApiError(error)) {
-      return NextResponse.json(
-        { error: error.message, details: error.details },
-        { status: error.status || 500 }
-      );
-    }
     
     return NextResponse.json(
       { error: "Internal server error" },

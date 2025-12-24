@@ -92,10 +92,10 @@ export default function Home() {
           
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="sm" asChild>
-              <Link href="//onboarding">Sign In</Link>
+              <Link href="/login">Sign In</Link>
             </Button>
             <Button size="sm" asChild>
-              <Link href="/onboarding">
+              <Link href="/signup">
                 Get Started <ArrowRight className="w-4 h-4" />
               </Link>
             </Button>
@@ -121,7 +121,7 @@ export default function Home() {
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Button size="lg" className="w-full sm:w-auto text-base px-8" asChild>
-                <Link href="/auth/onboarding">
+                <Link href="/signup">
                   Start Your Journey <ArrowRight className="w-5 h-5" />
                 </Link>
               </Button>
@@ -186,7 +186,7 @@ export default function Home() {
                 className="w-full sm:w-auto text-base px-8 bg-white text-blue-600 hover:bg-zinc-100"
                 asChild
               >
-                <Link href="/auth/onboarding">
+                <Link href="/signup">
                   Launch Teduco <ArrowRight className="w-5 h-5" />
                 </Link>
               </Button>
@@ -196,8 +196,8 @@ export default function Home() {
                 className="w-full sm:w-auto text-base px-8 border-white/30 text-white hover:bg-white/10"
                 asChild
               >
-                <Link href="/auth/progress-tracking">
-                  View Application Tracker
+                <Link href="/login">
+                  Sign In
                 </Link>
               </Button>
             </div>

@@ -4,8 +4,8 @@ from pydantic import BaseModel, EmailStr
 from typing import List
 import os
 from uuid import uuid4
-from db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, supabase
-from core.config import get_settings
+from .db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, get_user_profile, supabase
+from .core.config import get_settings
 
 app = FastAPI(title="Teduco API", version="0.1.0")
 
@@ -48,8 +48,15 @@ def get_signed_url(path: str, expires_sec: int = 60):
     )
     return res["signedURL"]
 
-@app.post("/onboarding")
-def onboarding(payload: dict, user_id: str = Depends(get_current_user)):
+@app.get("/profile")
+def get_profile(user_id: str = Depends(get_current_user)):
+    """Get user profile data."""
+    profile = get_user_profile(user_id)
+    return profile
+
+@app.put("/profile")
+def update_profile(payload: dict, user_id: str = Depends(get_current_user)):
+    """Update user profile (same as onboarding)."""
     # Update user profile
     upsert_user(
         user_id,
@@ -71,6 +78,11 @@ def onboarding(payload: dict, user_id: str = Depends(get_current_user)):
     save_onboarding_preferences(user_id, payload)
     
     return {"message": "ok", "user_id": user_id}
+
+@app.post("/onboarding")
+def onboarding(payload: dict, user_id: str = Depends(get_current_user)):
+    """Onboarding endpoint (calls update_profile)."""
+    return update_profile(payload, user_id)
 
 
 @app.post("/onboarding/profile")

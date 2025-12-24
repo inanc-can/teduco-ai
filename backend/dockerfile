@@ -8,6 +8,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # copy only application source code
 COPY src/ ./src
 
-# run everything from /app/src  (so imports work)
-WORKDIR /app/src
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Stay in /app directory for proper package imports
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

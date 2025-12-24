@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
+import { supabase } from "@/lib/supabase"
 
 import { cn } from "@/lib/utils"
 import { Chat } from "@/components/ui/chat"
@@ -85,6 +86,30 @@ function useChat({ initialMessages = [] }: { initialMessages?: Message[] }) {
 }
 
 export default function Page(props: ChatDemoProps) {
+  const [userName, setUserName] = useState<string | null>(null)
+
+  useEffect(() => {
+    async function loadUserName() {
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        if (authUser) {
+          const { data: profile } = await supabase
+            .from('users')
+            .select('first_name')
+            .eq('user_id', authUser.id)
+            .single()
+          
+          if (profile?.first_name) {
+            setUserName(profile.first_name)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading user name:', error)
+      }
+    }
+    loadUserName()
+  }, [])
+
   const {
     messages,
     input,
@@ -147,6 +172,7 @@ export default function Page(props: ChatDemoProps) {
             "What are the admission requirements?",
             "Tell me about the Computer Science program.",
           ]}
+          welcomeMessage={userName ? `Teduco'ya Hoşgeldin ${userName}` : "Teduco'ya Hoşgeldin"}
         />
       </div>
     </div>

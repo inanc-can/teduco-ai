@@ -194,21 +194,51 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   const handleFormSubmit = async (data: Record<string, unknown>) => {
     setIsSubmitting(true);
     try {
+      // Get the current session token
+      const { supabase } = await import("@/lib/supabase");
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast.error("You must be logged in to complete onboarding");
+        return;
+      }
+
       const res = await fetch("/api/onboarding", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify(data),
       });
       
       if (!res.ok) {
-        throw new Error("Failed to submit");
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to submit");
       }
       
-      toast.success("We saved your intake—our counselors will follow up in Turkish shortly.");
+      // Mark onboarding as completed
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({
+            onboarding_completed: true,
+            onboarding_completed_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+
+        if (updateError) {
+          console.error('Failed to mark onboarding as completed:', updateError);
+        }
+      }
+      
+      toast.success("Onboarding completed! Welcome to Teduco.");
       onComplete?.(data as OnboardingFormValues);
     } catch (error) {
       console.error("Submission error:", error);
-      toast.error("Submission failed. Please try again.");
+      toast.error(error instanceof Error ? error.message : "Submission failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }

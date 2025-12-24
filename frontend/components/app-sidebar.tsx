@@ -95,7 +95,17 @@ const data = {
   ]
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
+  user?: {
+    name: string
+    email: string
+    avatar: string
+  }
+}
+
+export function AppSidebar({ user, ...props }: AppSidebarProps) {
+  const userData = user || data.user
+  
   return (
     <Sidebar className="border-r-0" {...props}>
       <SidebarHeader>
@@ -111,7 +121,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarRail />
       <SidebarFooter>
         {/* Footer content can go here */}
-        <NavUser user={data.user} />
+        <NavUser user={userData} />
       </SidebarFooter>
 
     </Sidebar>

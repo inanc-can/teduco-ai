@@ -7,6 +7,7 @@ import { Loader2, Save, User, Briefcase, GraduationCap, FileText, Upload, X } fr
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
+import { supabase } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -96,10 +97,26 @@ export default function SettingsPage() {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const res = await fetch("/api/settings")
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (!session) {
+          toast.error("You must be logged in")
+          return
+        }
+
+        const res = await fetch("/api/settings", {
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+        })
+        
         if (res.ok) {
           const data = await res.json()
           reset(data)
+        } else {
+          const error = await res.json().catch(() => ({ error: "Unknown error" }))
+          console.error("Failed to load settings:", error)
+          toast.error(error.error || "Failed to load your settings")
         }
       } catch (error) {
         console.error("Failed to load settings:", error)
@@ -128,11 +145,21 @@ export default function SettingsPage() {
 
     setIsSaving(true)
     try {
+      const { data: { session } } = await supabase.auth.getSession()
+      
+      if (!session) {
+        toast.error("You must be logged in")
+        return
+      }
+
       // In production, you would upload files to a file storage service
       // and include the file URLs in the API request
       const res = await fetch("/api/settings", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           ...data,
           documentFiles: Object.keys(documentFiles).reduce((acc, key) => {
@@ -143,14 +170,15 @@ export default function SettingsPage() {
       })
 
       if (!res.ok) {
-        throw new Error("Failed to save settings")
+        const errorData = await res.json().catch(() => ({ error: "Unknown error" }))
+        throw new Error(errorData.error || "Failed to save settings")
       }
 
       toast.success("Settings saved successfully!")
       reset(data) // Reset form state to mark as not dirty
     } catch (error) {
       console.error("Save error:", error)
-      toast.error("Failed to save settings")
+      toast.error(error instanceof Error ? error.message : "Failed to save settings")
     } finally {
       setIsSaving(false)
     }
