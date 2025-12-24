@@ -3,10 +3,11 @@
 import {
   forwardRef,
   useCallback,
+  useEffect,
   useRef,
   useState,
-  type ReactElement,
-} from "react"
+  type ReactElement,  type Dispatch,
+  type SetStateAction,} from "react"
 import { ArrowDown, ThumbsDown, ThumbsUp } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -33,8 +34,9 @@ interface ChatPropsBase {
     messageId: string,
     rating: "thumbs-up" | "thumbs-down"
   ) => void
-  setMessages?: (messages: any[]) => void
+  setMessages?: Dispatch<SetStateAction<Message[]>>
   transcribeAudio?: (blob: Blob) => Promise<string>
+  welcomeMessage?: string
 }
 
 interface ChatPropsWithoutSuggestions extends ChatPropsBase {
@@ -45,7 +47,6 @@ interface ChatPropsWithoutSuggestions extends ChatPropsBase {
 interface ChatPropsWithSuggestions extends ChatPropsBase {
   append: (message: { role: "user"; content: string }) => void
   suggestions: string[]
-  welcomeMessage?: string
 }
 
 type ChatProps = ChatPropsWithoutSuggestions | ChatPropsWithSuggestions
@@ -70,7 +71,10 @@ export function Chat({
   const isTyping = lastMessage?.role === "user"
 
   const messagesRef = useRef(messages)
-  messagesRef.current = messages
+  
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
 
   // Enhanced stop function that marks pending tool calls as cancelled
   const handleStop = useCallback(() => {
@@ -115,7 +119,7 @@ export function Chat({
     }
 
     if (lastAssistantMessage.parts && lastAssistantMessage.parts.length > 0) {
-      const updatedParts = lastAssistantMessage.parts.map((part: any) => {
+      const updatedParts = lastAssistantMessage.parts.map((part) => {
         if (
           part.type === "tool-invocation" &&
           part.toolInvocation &&
@@ -126,7 +130,7 @@ export function Chat({
             ...part,
             toolInvocation: {
               ...part.toolInvocation,
-              state: "result",
+              state: "result" as const,
               result: {
                 content: "Tool execution was cancelled",
                 __cancelled: true,
@@ -313,7 +317,7 @@ interface ChatFormProps {
 }
 
 export const ChatForm = forwardRef<HTMLFormElement, ChatFormProps>(
-  ({ children, handleSubmit, isPending, className }, ref) => {
+  ({ children, handleSubmit, className }, ref) => {
     const [files, setFiles] = useState<File[] | null>(null)
 
     const onSubmit = (event: React.FormEvent) => {

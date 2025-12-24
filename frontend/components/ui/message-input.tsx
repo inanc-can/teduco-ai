@@ -62,14 +62,20 @@ export function MessageInput({
   } = useAudioRecording({
     transcribeAudio,
     onTranscriptionComplete: (text) => {
-      props.onChange?.({ target: { value: text } } as any)
+      props.onChange?.({
+        target: { value: text },
+      } as React.ChangeEvent<HTMLTextAreaElement>)
     },
   })
 
+  // Reset interrupt prompt when generation completes
+  const wasGenerating = useRef(isGenerating)
   useEffect(() => {
-    if (!isGenerating) {
+    if (wasGenerating.current && !isGenerating) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowInterruptPrompt(false)
     }
+    wasGenerating.current = isGenerating
   }, [isGenerating])
 
   const addFiles = (files: File[] | null) => {
@@ -120,7 +126,6 @@ export function MessageInput({
       const blob = new Blob([text], { type: "text/plain" })
       const file = new File([blob], "Pasted text", {
         type: "text/plain",
-        lastModified: Date.now(),
       })
       addFiles([file])
       return

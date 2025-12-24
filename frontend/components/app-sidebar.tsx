@@ -2,11 +2,7 @@
 
 import * as React from "react"
 import {
-  AudioWaveform,
-  Command,
   Home,
-  Inbox,
-  Search,
   Sparkles,
 } from "lucide-react"
 

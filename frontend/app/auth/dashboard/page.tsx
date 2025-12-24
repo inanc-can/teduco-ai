@@ -33,7 +33,7 @@ function useChat({ initialMessages = [] }: { initialMessages?: Message[] }) {
     setInput(e.target.value)
   }, [])
 
-  const handleSubmit = useCallback((event?: { preventDefault?: () => void }, _options?: { experimental_attachments?: FileList }) => {
+  const handleSubmit = useCallback((event?: { preventDefault?: () => void }) => {
     if (event?.preventDefault) event.preventDefault()
     if (!input.trim()) return
 

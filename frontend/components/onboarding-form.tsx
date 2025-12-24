@@ -167,7 +167,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
       const fieldErrors = result.error.flatten().fieldErrors;
       Object.entries(fieldErrors).forEach(([field, messages]) => {
         if (messages && messages.length > 0) {
-          setError(field as any, {
+          setError(field as Parameters<typeof setError>[0], {
             type: "manual",
             message: messages[0],
           });
