@@ -133,7 +133,7 @@ function useChatWithDB({ chatId }: { chatId?: string }) {
           activeChatId = newChat.id
           setCurrentChatId(activeChatId)
           // Update URL without reload
-          window.history.replaceState(null, '', `/auth/dashboard?chat=${activeChatId}`)
+          window.history.replaceState(null, '', `/dashboard?chat=${activeChatId}`)
         } else {
           toast.error("Failed to create chat")
           setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
