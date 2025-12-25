@@ -299,7 +299,7 @@ export default function DashboardPage() {
             "Tell me about scholarship opportunities.",
             "Help me with my statement of purpose.",
           ]}
-          welcomeMessage={userName ? `Teduco'ya Hoşgeldin ${userName}` : "Teduco'ya Hoşgeldin İnanç"}
+          welcomeMessage={userName ? `Teduco'ya Hoşgeldin ${userName}` : "Teduco'ya Hoşgeldin"}
         />
       </div>
     </div>
