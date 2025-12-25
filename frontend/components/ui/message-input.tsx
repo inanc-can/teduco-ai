@@ -212,6 +212,7 @@ export function MessageInput({
             onKeyDown={onKeyDown}
             className={cn(
               "z-10 w-full grow resize-none rounded-xl border border-input bg-background p-3 pr-24 text-sm ring-offset-background transition-[border] placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
+              "max-h-60",
               showFileList && "pb-16",
               className
             )}
@@ -442,7 +443,7 @@ function RecordingControls({
   if (isRecording) {
     return (
       <div
-        className="absolute inset-[1px] z-50 overflow-hidden rounded-xl"
+        className="absolute inset-px z-50 overflow-hidden rounded-xl"
         style={{ height: textAreaHeight - 2 }}
       >
         <AudioVisualizer
@@ -457,7 +458,7 @@ function RecordingControls({
   if (isTranscribing) {
     return (
       <div
-        className="absolute inset-[1px] z-50 overflow-hidden rounded-xl"
+        className="absolute inset-px z-50 overflow-hidden rounded-xl"
         style={{ height: textAreaHeight - 2 }}
       >
         <TranscribingOverlay />

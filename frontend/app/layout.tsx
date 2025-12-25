@@ -15,8 +15,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Teduco AI - Your AI Study Abroad Assistant",
-  description: "Navigate the complexities of international education with AI-powered guidance",
+  title: {
+    template: '%s | Teduco',
+    default: 'Teduco - AI Study Abroad Assistant',
+  },
+  description: 'Navigate the complexities of international education with AI-powered guidance tailored for Turkish students',
+  keywords: ['study abroad', 'university application', 'AI assistant', 'international education', 'Turkey', 'university counseling'],
+  authors: [{ name: 'Teduco' }],
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: 'https://teduco.com',
+    title: 'Teduco - AI Study Abroad Assistant',
+    description: 'Navigate the complexities of international education with AI-powered guidance',
+    siteName: 'Teduco',
+  },
 };
 
 export default function RootLayout({

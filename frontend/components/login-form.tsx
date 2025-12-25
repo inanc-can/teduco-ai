@@ -41,7 +41,7 @@ export function LoginForm({
       }
 
       toast.success("Logged in successfully!")
-      router.push("/auth/dashboard")
+      // Refresh to trigger middleware redirect
       router.refresh()
     } catch (error) {
       toast.error("An unexpected error occurred")

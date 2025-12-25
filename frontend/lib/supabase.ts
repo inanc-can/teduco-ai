@@ -1,7 +1,8 @@
-import { createClient, Session } from '@supabase/supabase-js'
+import { createBrowserClient as createSupabaseBrowserClient } from '@supabase/ssr'
+import { Session } from '@supabase/supabase-js'
 
-// Create a single supabase client for client-side use
-export const supabase = createClient(
+// Create a single supabase client for client-side use with proper auth persistence
+export const supabase = createSupabaseBrowserClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!
 )

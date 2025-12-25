@@ -13,6 +13,7 @@ export function useAutoScroll(dependencies: React.DependencyList) {
   const scrollToBottom = () => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight
+      setShouldAutoScroll(true)
     }
   }
 

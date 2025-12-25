@@ -27,7 +27,7 @@ export default function OnboardingPage() {
           .single();
 
         if (profile?.onboarding_completed) {
-          router.push('/auth/dashboard');
+          router.push('/dashboard');
           return;
         }
 
@@ -74,7 +74,10 @@ export default function OnboardingPage() {
           </div>
         </div>
         <div className="w-full lg:w-3/5">
-          <OnboardingForm onComplete={() => router.push("/auth/dashboard")} />
+          <OnboardingForm onComplete={() => {
+            router.push("/dashboard")
+            router.refresh()
+          }} />
         </div>
       </div>
     </div>

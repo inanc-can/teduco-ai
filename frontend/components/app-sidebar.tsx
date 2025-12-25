@@ -23,12 +23,12 @@ const data = {
   navMain: [
     {
       title: "Home",
-      url: "/auth/dashboard",
+      url: "/dashboard",
       icon: Home,
     },
     {
       title: "Progress Tracking",
-      url: "/auth/progress-tracking",
+      url: "/progress-tracking",
       icon: Sparkles,
     },
   ],
@@ -43,7 +43,6 @@ type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
 }
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
-  const userData = user || data.user
   
   return (
     <Sidebar className="border-r-0" {...props}>
@@ -60,9 +59,8 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
       <SidebarRail />
       <SidebarFooter>
         {/* Footer content can go here */}
-        <NavUser user={userData} />
+        {user && <NavUser user={user} />}
       </SidebarFooter>
-
     </Sidebar>
   )
 }

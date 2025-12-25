@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import {
-  BadgeCheck,
   ChevronsUpDown,
   LogOut,
   Settings,
@@ -107,7 +106,7 @@ export function NavUser({
               </div>
             </DropdownMenuLabel>
             <DropdownMenuGroup>
-                <DropdownMenuItem onClick={() => router.push("/auth/settings")}>
+                <DropdownMenuItem onClick={() => router.push("/settings")}>
                 <Settings />
                 Settings
                 </DropdownMenuItem>

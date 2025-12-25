@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { useSearchParams, useRouter } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { supabase, getCachedSession } from "@/lib/supabase"
 import { toast } from "sonner"
 
@@ -31,7 +31,6 @@ function useChatWithDB({ chatId }: { chatId?: string }) {
   const [status, setStatus] = useState<'ready' | 'submitted' | 'streaming'>('ready')
   const [isLoading, setIsLoading] = useState(false)
   const [currentChatId, setCurrentChatId] = useState<string | undefined>(chatId)
-  const router = useRouter()
 
   // Load messages when chatId changes
   useEffect(() => {
@@ -63,7 +62,7 @@ function useChatWithDB({ chatId }: { chatId?: string }) {
 
         if (response.ok) {
           const data = await response.json()
-          setMessages(data.map((msg: any) => ({
+          setMessages(data.map((msg: Message) => ({
             id: msg.id,
             role: msg.role,
             content: msg.content
@@ -191,7 +190,7 @@ function useChatWithDB({ chatId }: { chatId?: string }) {
     } finally {
       setStatus('ready')
     }
-  }, [input, currentChatId, router])
+  }, [input, currentChatId])
 
   const append = useCallback((message: { role: "user"; content: string; }) => {
     const fullMessage: Message = {
@@ -273,18 +272,17 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="relative flex flex-col h-screen w-full overflow-hidden">
+    <div className="flex flex-col h-screen w-full overflow-hidden">
       {/* Chat area with animation */}
       <div 
         className={cn(
-          "flex-1 flex flex-col w-full max-w-3xl mx-auto px-4 pb-6 transition-all duration-500 ease-out",
-          isEmpty ? "justify-center pt-0" : "justify-end pt-16"
+          "flex-1 w-full max-w-3xl mx-auto min-h-0 flex items-center justify-center transition-all duration-500 ease-out"
         )}
       >
         <Chat
           className={cn(
-            "w-full transition-all duration-500 ease-out",
-            isEmpty ? "max-h-[400px]" : "h-full"
+            "w-full h-full transition-all duration-500 ease-out",
+            isEmpty && "max-h-[600px]"
           )}
           messages={messages}
           handleSubmit={handleSubmit}
@@ -293,7 +291,7 @@ export default function DashboardPage() {
           isGenerating={status === 'submitted' || status === 'streaming'}
           stop={stop}
           append={append}
-          setMessages={setMessages as any}
+          setMessages={setMessages}
           transcribeAudio={transcribeAudio}
           suggestions={[
             "How can I apply to TUM?",

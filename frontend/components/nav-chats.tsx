@@ -168,7 +168,7 @@ export function NavChats() {
         ))
         
         // Navigate to new chat (this only updates the dashboard, not sidebar)
-        router.push(`/auth/dashboard?chat=${newChat.id}`)
+        router.push(`/dashboard?chat=${newChat.id}`)
         toast.success("New chat created")
       } else {
         // Remove optimistic chat on error
@@ -292,7 +292,7 @@ export function NavChats() {
           chats.map((chat) => (
             <SidebarMenuItem key={chat.id}>
               <SidebarMenuButton asChild>
-                <a href={`/auth/dashboard?chat=${chat.id}`} title={chat.title}>
+                <a href={`/dashboard?chat=${chat.id}`} title={chat.title}>
                   <span>{chat.emoji}</span>
                   <span className="truncate">{chat.title}</span>
                 </a>
@@ -324,14 +324,14 @@ export function NavChats() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}/auth/dashboard?chat=${chat.id}`)
+                    navigator.clipboard.writeText(`${window.location.origin}/dashboard?chat=${chat.id}`)
                     toast.success("Link copied to clipboard")
                   }}>
                     <Link className="text-muted-foreground" />
                     <span>Copy Link</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => {
-                    window.open(`/auth/dashboard?chat=${chat.id}`, '_blank')
+                    window.open(`/dashboard?chat=${chat.id}`, '_blank')
                   }}>
                     <ArrowUpRight className="text-muted-foreground" />
                     <span>Open in New Tab</span>

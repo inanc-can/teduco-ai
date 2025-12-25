@@ -200,7 +200,7 @@ export function Chat({
   return (
     <ChatContainer className={className} isEmpty={isEmpty}>
       {isEmpty && append && suggestions ? (
-        <div className="flex flex-col items-center justify-center animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
+        <div className="flex flex-col items-center justify-center px-4 animate-in fade-in-0 slide-in-from-bottom-4 duration-500">
           <PromptSuggestions
             label={welcomeMessage || "Teduco'ya Hoşgeldin"}
             append={append}
@@ -220,7 +220,7 @@ export function Chat({
       ) : null}
 
       <ChatForm
-        className={isEmpty ? "mt-6" : "mt-auto"}
+        className="shrink-0"
         isPending={isGenerating || isTyping}
         handleSubmit={handleSubmit}
       >
@@ -258,27 +258,25 @@ export function ChatMessages({
 
   return (
     <div
-      className="grid grid-cols-1 overflow-y-auto pb-4"
+      className="flex-1 flex flex-col overflow-y-auto px-4 min-h-0"
       ref={containerRef}
       onScroll={handleScroll}
       onTouchStart={handleTouchStart}
     >
-      <div className="max-w-full [grid-column:1/1] [grid-row:1/1]">
+      <div className="flex-1 flex flex-col pb-4 pt-4">
         {children}
       </div>
 
       {!shouldAutoScroll && (
-        <div className="pointer-events-none flex flex-1 items-end justify-end [grid-column:1/1] [grid-row:1/1]">
-          <div className="sticky bottom-0 left-0 flex w-full justify-end">
-            <Button
-              onClick={scrollToBottom}
-              className="pointer-events-auto h-8 w-8 rounded-full ease-in-out animate-in fade-in-0 slide-in-from-bottom-1"
-              size="icon"
-              variant="ghost"
-            >
-              <ArrowDown className="h-4 w-4" />
-            </Button>
-          </div>
+        <div className="sticky bottom-4 right-0 flex justify-end pointer-events-none">
+          <Button
+            onClick={scrollToBottom}
+            className="pointer-events-auto h-8 w-8 rounded-full ease-in-out animate-in fade-in-0 slide-in-from-bottom-1"
+            size="icon"
+            variant="ghost"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
         </div>
       )}
     </div>
@@ -288,13 +286,12 @@ export function ChatMessages({
 export const ChatContainer = forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & { isEmpty?: boolean }
->(({ className, isEmpty, ...props }, ref) => {
+>(({ className, ...props }, ref) => {
   return (
     <div
       ref={ref}
       className={cn(
-        "grid max-h-full w-full transition-all duration-500 ease-out",
-        isEmpty ? "grid-rows-[auto_auto]" : "grid-rows-[1fr_auto]",
+        "flex flex-col w-full h-full gap-2 min-h-0",
         className
       )}
       {...props}
@@ -332,7 +329,7 @@ export const ChatForm = forwardRef<HTMLFormElement, ChatFormProps>(
     }
 
     return (
-      <form ref={ref} onSubmit={onSubmit} className={className}>
+      <form ref={ref} onSubmit={onSubmit} className={cn("px-4 pb-6 pt-2", className)}>
         {children({ files, setFiles })}
       </form>
     )

@@ -88,7 +88,9 @@ export function SignupForm({
       }
 
       toast.success("Account created successfully! Let's set up your profile.")
+      // Refresh to trigger middleware redirect
       router.push("/onboarding")
+      router.refresh()
     } catch (error) {
       toast.error("An unexpected error occurred")
       console.error(error)
