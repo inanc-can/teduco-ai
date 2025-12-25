@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
+from typing import Optional
 from datetime import datetime
 import os
 from uuid import uuid4
