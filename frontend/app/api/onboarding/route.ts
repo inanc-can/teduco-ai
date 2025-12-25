@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract token and validate it's not empty
-    const token = authHeader.substring(7); // Remove "Bearer " prefix
+    const token = authHeader.substring("Bearer ".length);
     if (!token || token.trim() === "") {
       return NextResponse.json(
         { error: "Unauthorized - Missing token" },
