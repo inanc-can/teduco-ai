@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from "next/headers"
 import { z } from 'zod'
+import { unstable_cache } from 'next/cache'
 
 // Validate environment variables
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL
@@ -10,37 +11,41 @@ if (!BACKEND_URL) {
 }
 
 // Input validation schema for PUT requests
+// Use passthrough() to allow extra fields and be lenient with validation
 const SettingsUpdateSchema = z.object({
-  firstName: z.string().min(1).max(100).optional(),
-  lastName: z.string().min(1).max(100).optional(),
-  phone: z.string().max(20).optional(),
-  currentCity: z.string().max(100).optional(),
-  applicantType: z.enum(['high-school', 'university']).optional(),
-  highSchoolName: z.string().max(200).optional(),
-  highSchoolGPA: z.string().max(10).optional(),
-  highSchoolGPAScale: z.string().max(10).optional(),
-  highSchoolGradYear: z.string().max(4).optional(),
-  yksPlaced: z.string().max(500).optional(),
-  extracurriculars: z.string().max(2000).optional(),
-  universityName: z.string().max(200).optional(),
-  universityProgram: z.string().max(200).optional(),
-  universityGPA: z.string().max(10).optional(),
-  creditsCompleted: z.string().max(10).optional(),
-  expectedGraduation: z.string().max(50).optional(),
-  studyMode: z.string().max(50).optional(),
-  researchFocus: z.string().max(2000).optional(),
-  portfolioLink: z.string().url().max(500).optional(),
-  desiredCountries: z.array(z.string()).optional(),
-  desiredField: z.array(z.string()).optional(),
-  targetProgram: z.array(z.string()).optional(),
-  preferredIntake: z.string().max(50).optional(),
-  preferredSupport: z.string().max(2000).optional(),
-  additionalNotes: z.string().max(2000).optional(),
+  firstName: z.string().nullable().optional(),
+  lastName: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  currentCity: z.string().nullable().optional(),
+  applicantType: z.enum(['high-school', 'university']).nullable().optional(),
+  highSchoolName: z.string().nullable().optional(),
+  highSchoolGPA: z.string().nullable().optional(),
+  highSchoolGPAScale: z.string().nullable().optional(),
+  highSchoolGradYear: z.string().nullable().optional(),
+  yksPlaced: z.string().nullable().optional(),
+  extracurriculars: z.string().nullable().optional(),
+  scholarshipInterest: z.string().nullable().optional(),
+  universityName: z.string().nullable().optional(),
+  universityProgram: z.string().nullable().optional(),
+  universityGPA: z.string().nullable().optional(),
+  creditsCompleted: z.string().nullable().optional(),
+  expectedGraduation: z.string().nullable().optional(),
+  studyMode: z.string().nullable().optional(),
+  researchFocus: z.string().nullable().optional(),
+  portfolioLink: z.string().nullable().optional(),
+  desiredCountries: z.array(z.string()).nullable().optional(),
+  desiredField: z.array(z.string()).nullable().optional(),
+  targetProgram: z.array(z.string()).nullable().optional(),
+  preferredIntake: z.string().nullable().optional(),
+  preferredSupport: z.string().nullable().optional(),
+  additionalNotes: z.string().nullable().optional(),
+  documents: z.array(z.string()).nullable().optional(),
   documentFiles: z.record(z.string(), z.array(z.object({
     name: z.string(),
     size: z.number()
-  }))).optional(),
-})
+  }))).nullable().optional(),
+}).passthrough()
 
 // TypeScript interfaces
 interface BackendUser {
@@ -210,23 +215,31 @@ export async function GET(request: NextRequest) {
   try {
     const accessToken = await withAuth(request)
 
-    const response = await fetch(`${BACKEND_URL}/profile`, {
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
+    // Cache the profile fetch for 30 seconds
+    const getCachedProfile = unstable_cache(
+      async () => {
+        const response = await fetch(`${BACKEND_URL}/profile`, {
+          headers: {
+            "Authorization": `Bearer ${accessToken}`,
+          },
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error("Backend /profile GET error:", response.status, errorText)
+          throw new Error(`Backend error: ${response.status}`)
+        }
+
+        return response.json()
       },
-    })
+      ['user-profile', accessToken],
+      { 
+        revalidate: 30,  // Cache for 30 seconds
+        tags: ['user-profile']
+      }
+    )
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error("Backend /profile GET error:", response.status, errorText)
-      
-      return NextResponse.json(
-        { error: "Failed to load profile. Please try again." },
-        { status: response.status >= 500 ? 500 : 400 }
-      )
-    }
-
-    const data: BackendProfile = await response.json()
+    const data: BackendProfile = await getCachedProfile()
     const transformed = transformBackendToFrontend(data)
     
     return NextResponse.json(transformed || {})
@@ -235,6 +248,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
+      )
+    }
+    
+    if (error instanceof Error && error.message.startsWith("Backend error")) {
+      return NextResponse.json(
+        { error: "Failed to load profile. Please try again." },
+        { status: 500 }
       )
     }
     
@@ -288,7 +308,13 @@ export async function PUT(request: NextRequest) {
     if (error instanceof z.ZodError) {
       console.error("Validation error:", error.issues)
       return NextResponse.json(
-        { error: "Invalid input data", details: error.issues },
+        { 
+          error: "Invalid input data", 
+          details: error.issues.map(issue => ({
+            path: issue.path.join('.'),
+            message: issue.message
+          }))
+        },
         { status: 400 }
       )
     }

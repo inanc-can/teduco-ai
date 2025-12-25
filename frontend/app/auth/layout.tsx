@@ -46,7 +46,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         // Allow access to settings/progress-tracking even without onboarding
         const allowedWithoutOnboarding = [
           '/auth/settings',
-          '/auth/progress-tracking'
         ]
         const isAllowedRoute = allowedWithoutOnboarding.some(route => pathname?.startsWith(route))
         

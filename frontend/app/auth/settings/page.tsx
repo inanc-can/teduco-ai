@@ -3,11 +3,11 @@
 import { useState, useEffect } from "react"
 import { useForm, Controller } from "react-hook-form"
 import { motion } from "framer-motion"
-import { Loader2, Save, User, Briefcase, GraduationCap, FileText, Upload, X } from "lucide-react"
+import { Loader2, Save, User, Briefcase, GraduationCap, FileText, Upload, X, Eye, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
-import { supabase } from "@/lib/supabase"
+import { supabase, getCachedSession } from "@/lib/supabase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -54,11 +54,21 @@ const fadeInUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 }
 
+type DocumentType = {
+  document_id: string
+  user_id: string
+  doc_type: string
+  storage_path: string
+  mime_type: string
+  uploaded_at: string
+}
+
 export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState("personal")
   const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({})
+  const [existingDocuments, setExistingDocuments] = useState<DocumentType[]>([])
 
   const {
     control,
@@ -93,30 +103,91 @@ export default function SettingsPage() {
     }))
   }
 
-  // Load user data on mount
+  const handleReviewFile = async (storagePath: string) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('user-documents')
+        .createSignedUrl(storagePath, 60 * 60) // 1 hour expiry
+      
+      if (error) throw error
+      
+      if (data?.signedUrl) {
+        window.open(data.signedUrl, '_blank')
+      }
+    } catch (error) {
+      console.error("Failed to review file:", error)
+      toast.error("Failed to open file")
+    }
+  }
+
+  const handleRemoveExistingFile = async (documentId: string) => {
+    try {
+      const session = await getCachedSession()
+      
+      if (!session) {
+        toast.error("You must be logged in")
+        return
+      }
+
+      const res = await fetch(`http://localhost:8000/documents/${documentId}`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+      
+      if (res.ok) {
+        setExistingDocuments(prev => prev.filter(doc => doc.document_id !== documentId))
+        toast.success("Document removed successfully")
+      } else {
+        const error = await res.json().catch(() => ({ error: "Unknown error" }))
+        toast.error(error.error || "Failed to remove document")
+      }
+    } catch (error) {
+      console.error("Failed to remove document:", error)
+      toast.error("Failed to remove document")
+    }
+  }
+
+  // Load user data and documents on mount
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession()
+        const session = await getCachedSession()
         
         if (!session) {
           toast.error("You must be logged in")
           return
         }
 
-        const res = await fetch("/api/settings", {
-          headers: {
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-        })
+        // Parallel fetching for better performance
+        const [settingsRes, docsRes] = await Promise.all([
+          fetch("/api/settings", {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          }),
+          fetch("http://localhost:8000/documents", {
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+          })
+        ])
         
-        if (res.ok) {
-          const data = await res.json()
+        if (settingsRes.ok) {
+          const data = await settingsRes.json()
           reset(data)
         } else {
-          const error = await res.json().catch(() => ({ error: "Unknown error" }))
+          const error = await settingsRes.json().catch(() => ({ error: "Unknown error" }))
           console.error("Failed to load settings:", error)
           toast.error(error.error || "Failed to load your settings")
+        }
+        
+        if (docsRes.ok) {
+          const docs = await docsRes.json()
+          setExistingDocuments(docs)
+        } else {
+          console.error("Failed to load documents")
         }
       } catch (error) {
         console.error("Failed to load settings:", error)
@@ -145,32 +216,86 @@ export default function SettingsPage() {
 
     setIsSaving(true)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
+      const session = await getCachedSession()
       
       if (!session) {
         toast.error("You must be logged in")
         return
       }
 
-      // In production, you would upload files to a file storage service
-      // and include the file URLs in the API request
+      // Upload all document files to the backend
+      for (const [docType, files] of Object.entries(documentFiles)) {
+        for (const file of files) {
+          const formData = new FormData()
+          formData.append('file', file)
+          formData.append('doc_type', docType)
+          
+          const uploadRes = await fetch("http://localhost:8000/documents", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${session.access_token}`,
+            },
+            body: formData,
+          })
+          
+          if (!uploadRes.ok) {
+            const errorText = await uploadRes.text()
+            console.error("Upload error response:", uploadRes.status, errorText)
+            let errorMessage = "Upload failed"
+            try {
+              const errorJson = JSON.parse(errorText)
+              errorMessage = errorJson.detail || errorJson.error || errorJson.message || errorText
+            } catch {
+              errorMessage = errorText || `HTTP ${uploadRes.status}`
+            }
+            throw new Error(`Failed to upload ${file.name}: ${errorMessage}`)
+          }
+          
+          console.log(`Successfully uploaded: ${file.name}`)
+        }
+      }
+
+      // Clear the document files after successful upload
+      setDocumentFiles({})
+      
+      // Reload documents to show the newly uploaded ones
+      const docsRes = await fetch("http://localhost:8000/documents", {
+        headers: {
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+      })
+      
+      if (docsRes.ok) {
+        const docs = await docsRes.json()
+        setExistingDocuments(docs)
+      }
+
+      // Save the settings (without file data, just document type selections)
       const res = await fetch("/api/settings", {
         method: "PUT",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          ...data,
-          documentFiles: Object.keys(documentFiles).reduce((acc, key) => {
-            acc[key] = documentFiles[key].map(f => ({ name: f.name, size: f.size }))
-            return acc
-          }, {} as Record<string, Array<{ name: string; size: number }>>)
-        }),
+        body: JSON.stringify(data),
       })
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({ error: "Unknown error" }))
+        console.error("Response status:", res.status, res.statusText)
+        const responseText = await res.text()
+        console.error("Response body:", responseText)
+        
+        let errorData
+        try {
+          errorData = JSON.parse(responseText)
+        } catch {
+          errorData = { error: responseText || "Unknown error" }
+        }
+        
+        console.error("Settings save error:", errorData)
+        if (errorData.details) {
+          console.error("Validation details:", errorData.details)
+        }
         throw new Error(errorData.error || "Failed to save settings")
       }
 
@@ -610,6 +735,52 @@ export default function SettingsPage() {
                     />
                   </motion.div>
 
+                  {existingDocuments.length > 0 && (
+                    <motion.div variants={fadeInUp} className="space-y-4">
+                      <Label>Already uploaded documents</Label>
+                      <div className="space-y-2">
+                        {existingDocuments.map((doc) => (
+                          <div
+                            key={doc.document_id}
+                            className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3"
+                          >
+                            <div className="flex items-center gap-3 flex-1 min-w-0">
+                              <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">
+                                  {doc.doc_type.charAt(0).toUpperCase() + doc.doc_type.slice(1)} Document
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleReviewFile(doc.storage_path)}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                Review
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleRemoveExistingFile(doc.document_id)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
                   {selectedDocuments.length > 0 && (
                     <motion.div variants={fadeInUp} className="space-y-4">
                       <Label>Upload required documents</Label>
@@ -650,9 +821,9 @@ export default function SettingsPage() {
                                       className="flex items-center justify-between bg-muted/50 rounded px-3 py-2 text-sm"
                                     >
                                       <div className="flex items-center gap-2 flex-1 min-w-0">
-                                        <FileText className="h-4 w-4 flex-shrink-0" />
+                                        <FileText className="h-4 w-4 shrink-0" />
                                         <span className="truncate">{file.name}</span>
-                                        <span className="text-xs text-muted-foreground flex-shrink-0">
+                                        <span className="text-xs text-muted-foreground shrink-0">
                                           ({(file.size / 1024).toFixed(1)} KB)
                                         </span>
                                       </div>

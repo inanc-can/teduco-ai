@@ -1,7 +1,9 @@
 "use client"
 
 import { useState, useCallback, useEffect } from "react"
-import { supabase } from "@/lib/supabase"
+import { useSearchParams, useRouter } from "next/navigation"
+import { supabase, getCachedSession } from "@/lib/supabase"
+import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 import { Chat } from "@/components/ui/chat"
@@ -12,9 +14,8 @@ type Message = {
   content: string
 }
 
-type ChatDemoProps = {
-  initialMessages?: Message[]
-}
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+
 
 // Mock transcribeAudio function
 const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
@@ -23,43 +24,174 @@ const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
   return "Transcribed audio: Hello, this is a mock transcription."
 }
 
-// Mock useChat hook
-function useChat({ initialMessages = [] }: { initialMessages?: Message[] }) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
+// Custom useChat hook with database integration
+function useChatWithDB({ chatId }: { chatId?: string }) {
+  const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [status, setStatus] = useState<'ready' | 'submitted' | 'streaming'>('ready')
+  const [isLoading, setIsLoading] = useState(false)
+  const [currentChatId, setCurrentChatId] = useState<string | undefined>(chatId)
+  const router = useRouter()
+
+  // Load messages when chatId changes
+  useEffect(() => {
+    if (!chatId) {
+      setIsLoading(false)
+      setMessages([])
+      setCurrentChatId(undefined)
+      return
+    }
+
+    setIsLoading(true)
+    setCurrentChatId(chatId)
+
+    const loadMessages = async () => {
+      try {
+        const session = await getCachedSession()
+        
+        if (!session) {
+          console.error("No session found")
+          setIsLoading(false)
+          return
+        }
+
+        const response = await fetch(`${BACKEND_URL}/chats/${chatId}/messages`, {
+          headers: {
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          setMessages(data.map((msg: any) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content
+          })))
+        } else {
+          console.error("Failed to load messages:", response.status)
+          toast.error("Failed to load messages")
+        }
+      } catch (error) {
+        console.error("Error loading messages:", error)
+        toast.error("Failed to load messages")
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadMessages()
+  }, [chatId])
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
   }, [])
 
-  const handleSubmit = useCallback((event?: { preventDefault?: () => void }) => {
+  const handleSubmit = useCallback(async (event?: { preventDefault?: () => void }) => {
     if (event?.preventDefault) event.preventDefault()
     if (!input.trim()) return
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input.trim()
-    }
-    setMessages(prev => [...prev, userMessage])
+    const userMessageContent = input.trim()
     setInput("")
     setStatus('submitted')
 
-    // Simulate AI response
-    setTimeout(() => {
-      setStatus('streaming')
-      setTimeout(() => {
-        const aiMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `Mock response to: "${userMessage.content}"`
-        }
-        setMessages(prev => [...prev, aiMessage])
+    // Optimistically add user message to UI
+    const tempUserMessage: Message = {
+      id: `temp-${Date.now()}`,
+      role: 'user',
+      content: userMessageContent
+    }
+    setMessages(prev => [...prev, tempUserMessage])
+
+    try {
+      const session = await getCachedSession()
+      
+      if (!session) {
+        toast.error("Please log in")
         setStatus('ready')
-      }, 1000) // Simulate streaming delay
-    }, 500) // Simulate submission delay
-  }, [input])
+        return
+      }
+
+      setStatus('streaming')
+
+      // If no chat exists yet, create one first
+      let activeChatId = currentChatId
+      if (!activeChatId) {
+        const createResponse = await fetch(`${BACKEND_URL}/chats`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            title: "New Chat",
+            emoji: "💬"
+          }),
+        })
+
+        if (createResponse.ok) {
+          const newChat = await createResponse.json()
+          activeChatId = newChat.id
+          setCurrentChatId(activeChatId)
+          // Update URL without reload
+          window.history.replaceState(null, '', `/auth/dashboard?chat=${activeChatId}`)
+        } else {
+          toast.error("Failed to create chat")
+          setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
+          setStatus('ready')
+          return
+        }
+      }
+
+      const response = await fetch(`${BACKEND_URL}/chats/${activeChatId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          content: userMessageContent
+        }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        
+        // Replace temp message with real one and add AI response
+        setMessages(prev => {
+          const withoutTemp = prev.filter(m => m.id !== tempUserMessage.id)
+          const newMessages: Message[] = [
+            ...withoutTemp,
+            {
+              id: data.user_message.id,
+              role: 'user',
+              content: data.user_message.content
+            }
+          ]
+          
+          if (data.assistant_message) {
+            newMessages.push({
+              id: data.assistant_message.id,
+              role: 'assistant',
+              content: data.assistant_message.content
+            })
+          }
+          
+          return newMessages
+        })
+      } else {
+        toast.error("Failed to send message")
+        // Remove temp message on error
+        setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
+      }
+    } catch (error) {
+      console.error("Error sending message:", error)
+      toast.error("Failed to send message")
+      setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
+    } finally {
+      setStatus('ready')
+    }
+  }, [input, currentChatId, router])
 
   const append = useCallback((message: { role: "user"; content: string; }) => {
     const fullMessage: Message = {
@@ -81,11 +213,27 @@ function useChat({ initialMessages = [] }: { initialMessages?: Message[] }) {
     append,
     stop,
     status,
+    isLoading,
     setMessages,
   }
 }
 
-export default function Page(props: ChatDemoProps) {
+export default function DashboardPage() {
+  const searchParams = useSearchParams()
+  const chatId = searchParams.get('chat')
+
+  const {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    append,
+    stop,
+    status,
+    isLoading,
+    setMessages,
+  } = useChatWithDB({ chatId: chatId || undefined })
+
   const [userName, setUserName] = useState<string | null>(null)
 
   useEffect(() => {
@@ -110,42 +258,22 @@ export default function Page(props: ChatDemoProps) {
     loadUserName()
   }, [])
 
-  const {
-    messages,
-    input,
-    handleInputChange,
-    handleSubmit,
-    append,
-    stop,
-    status,
-    setMessages,
-  } = useChat({
-    initialMessages: props.initialMessages,
-  })
-
-  const isLoading = status === "submitted" || status === "streaming"
   const isEmpty = messages.length === 0
+
+  if (isLoading && chatId) {
+    return (
+      <div className="relative flex flex-col h-screen w-full overflow-hidden">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex flex-col h-screen w-full overflow-hidden">
-      {/* Model selector in top right 
-      
-      <div className="absolute top-4 right-6 z-10">
-        <Select value={selectedModel} onValueChange={setSelectedModel}>
-          <SelectTrigger className="w-[160px] bg-background/80 backdrop-blur-sm border-muted-foreground/20 text-sm">
-            <SelectValue placeholder="Select Model" />
-          </SelectTrigger>
-          <SelectContent>
-            {MODELS.map((model) => (
-              <SelectItem key={model.id} value={model.id}>
-                {model.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      */}
-
       {/* Chat area with animation */}
       <div 
         className={cn(
@@ -162,17 +290,18 @@ export default function Page(props: ChatDemoProps) {
           handleSubmit={handleSubmit}
           input={input}
           handleInputChange={handleInputChange}
-          isGenerating={isLoading}
+          isGenerating={status === 'submitted' || status === 'streaming'}
           stop={stop}
           append={append}
-          setMessages={setMessages}
+          setMessages={setMessages as any}
           transcribeAudio={transcribeAudio}
           suggestions={[
-            "How can I apply TUM?",
+            "How can I apply to TUM?",
             "What are the admission requirements?",
-            "Tell me about the Computer Science program.",
+            "Tell me about scholarship opportunities.",
+            "Help me with my statement of purpose.",
           ]}
-          welcomeMessage={userName ? `Teduco'ya Hoşgeldin ${userName}` : "Teduco'ya Hoşgeldin"}
+          welcomeMessage={userName ? `Teduco'ya Hoşgeldin ${userName}` : "Teduco'ya Hoşgeldin İnanç"}
         />
       </div>
     </div>

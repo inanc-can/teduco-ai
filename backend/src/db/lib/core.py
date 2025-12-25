@@ -122,14 +122,61 @@ def get_user_profile(user_id: str):
 
 # ---------- DOCUMENTS ----------
 def upload_document(user_id: str, fileobj, doc_type: str, mime: str):
-    path = f"{user_id}/{uuid4()}"
-    supabase.storage.from_(settings.supabase_bucket).upload(
-        path, fileobj, {"content-type": mime}
-    )
-    meta = {
-        "user_id": user_id,
-        "doc_type": doc_type,
-        "storage_path": path,
-        "mime_type": mime,
-    }
-    return supabase.table("documents").insert(meta).execute()
+    try:
+        path = f"{user_id}/{uuid4()}"
+        
+        # Read file content as bytes
+        file_content = fileobj.read()
+        
+        # Reset file pointer in case it's needed again
+        if hasattr(fileobj, 'seek'):
+            fileobj.seek(0)
+        
+        # Upload to Supabase Storage
+        storage_result = supabase.storage.from_(settings.supabase_bucket).upload(
+            path, file_content, {"content-type": mime}
+        )
+        
+        # Check for storage errors
+        if hasattr(storage_result, 'error') and storage_result.error:
+            raise Exception(f"Storage upload failed: {storage_result.error}")
+        
+        # Insert metadata into database
+        meta = {
+            "user_id": user_id,
+            "doc_type": doc_type,
+            "storage_path": path,
+            "mime_type": mime,
+        }
+        db_result = supabase.table("documents").insert(meta).execute()
+        
+        # Check for database errors
+        if hasattr(db_result, 'error') and db_result.error:
+            # Rollback: delete the uploaded file
+            supabase.storage.from_(settings.supabase_bucket).remove([path])
+            raise Exception(f"Database insert failed: {db_result.error}")
+        
+        return db_result
+    except Exception as e:
+        print(f"Error in upload_document: {str(e)}")
+        raise
+
+def get_user_documents(user_id: str):
+    """Get all documents for a user"""
+    return supabase.table("documents").select("*").eq("user_id", user_id).execute()
+
+def delete_document(document_id: str, user_id: str):
+    """Delete a document from storage and database"""
+    # First get the document to get its storage path
+    doc_res = supabase.table("documents").select("*").eq("document_id", document_id).eq("user_id", user_id).execute()
+    
+    if not doc_res.data:
+        raise ValueError("Document not found or access denied")
+    
+    storage_path = doc_res.data[0]["storage_path"]
+    
+    # Delete from storage
+    supabase.storage.from_(settings.supabase_bucket).remove([storage_path])
+    
+    # Delete from database
+    return supabase.table("documents").delete().eq("document_id", document_id).eq("user_id", user_id).execute()
