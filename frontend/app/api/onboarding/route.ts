@@ -17,11 +17,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get auth token from request
+    // Get auth token from request and validate format
     const authHeader = request.headers.get("authorization");
     if (!authHeader) {
       return NextResponse.json(
-        { error: "Unauthorized" },
+        { error: "Unauthorized - Missing authorization header" },
+        { status: 401 }
+      );
+    }
+
+    // Validate Authorization header format (must be "Bearer <token>")
+    if (!authHeader.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { error: "Unauthorized - Invalid authorization header format" },
+        { status: 401 }
+      );
+    }
+
+    // Extract token and validate it's not empty
+    const token = authHeader.substring(7); // Remove "Bearer " prefix
+    if (!token || token.trim() === "") {
+      return NextResponse.json(
+        { error: "Unauthorized - Missing token" },
         { status: 401 }
       );
     }
