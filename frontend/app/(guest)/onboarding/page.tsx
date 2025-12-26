@@ -1,11 +1,56 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-
+import { supabase } from "@/lib/supabase";
 import OnboardingForm from "@/components/onboarding-form";
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (!user) {
+          router.push('/login');
+          return;
+        }
+
+        // Check if already completed onboarding
+        const { data: profile } = await supabase
+          .from('users')
+          .select('onboarding_completed')
+          .eq('user_id', user.id)
+          .single();
+
+        if (profile?.onboarding_completed) {
+          router.push('/dashboard');
+          return;
+        }
+
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error checking auth:', error);
+        router.push('/login');
+      }
+    }
+
+    checkAuth();
+  }, [router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-4 text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-muted/40 py-10 px-4">
@@ -29,7 +74,10 @@ export default function OnboardingPage() {
           </div>
         </div>
         <div className="w-full lg:w-3/5">
-          <OnboardingForm onComplete={() => router.push("/auth/dashboard")} />
+          <OnboardingForm onComplete={() => {
+            router.push("/dashboard")
+            router.refresh()
+          }} />
         </div>
       </div>
     </div>
