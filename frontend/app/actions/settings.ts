@@ -3,7 +3,6 @@
 import { revalidatePath } from 'next/cache'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
-import { invalidateSessionCache } from '@/lib/supabase'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000'
 
@@ -76,9 +75,6 @@ export async function updateProfileSettings(formData: FormData) {
       const errorData = await response.json().catch(() => ({}))
       throw new Error(errorData.detail || 'Failed to update settings')
     }
-
-    // Invalidate session cache to force refresh
-    invalidateSessionCache()
     
     // Revalidate the settings page
     revalidatePath('/settings')
