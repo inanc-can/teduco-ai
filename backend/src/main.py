@@ -7,6 +7,22 @@ from uuid import uuid4
 from db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, supabase
 from core.config import get_settings
 
+import sys
+from pathlib import Path
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
+
+
+# Add backend directory to path for RAG imports
+sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "rag"))
+# Import RAG chatbot components
+from rag.models import ChatRequest, ChatResponse
+from rag.storage import ChatHistoryStorage
+from rag.chatbot.pipeline import initialize_rag_pipeline
+
+
+
 app = FastAPI(title="Teduco API", version="0.1.0")
 
 # CORS configuration for frontend
@@ -114,3 +130,121 @@ def login(credentials: LoginIn):
         }
     except Exception as e:
         raise HTTPException(400, "Invalid email or password")
+    
+
+# ============================================================================
+# RAG CHATBOT INITIALIZATION
+# ============================================================================
+print("\n" + "="*70)
+print("TEDUCO API - Initializing RAG Chatbot")
+print("="*70)
+
+# Initialize RAG pipeline
+RAG_DATA_DIR = Path(__file__).parent / "rag" / "data"
+RAG_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+try:
+    print("\n[STARTUP] Initializing RAG pipeline...")
+    rag_pipeline = initialize_rag_pipeline(
+        data_dir=str(RAG_DATA_DIR),
+        use_cache=True
+    )
+    print("[STARTUP] ✓ RAG pipeline initialized")
+except Exception as e:
+    print(f"\n[ERROR] Failed to initialize RAG pipeline: {e}")
+    print("\nMake sure:")
+    print("1. GROQ_API_KEY is set in .env file")
+    print("2. Run the crawler first: python -m rag.parser.crawler")
+    rag_pipeline = None  # Allow API to start even if RAG fails
+
+# Initialize chat history storage
+storage = ChatHistoryStorage(storage_dir="chats")
+
+# ============================================================================
+# STATIC FILES - Serve the frontend
+# ============================================================================
+FRONTEND_PATH = Path(__file__).parent  # Points to /app/src in container
+CHATBOT_HTML = FRONTEND_PATH / "chatbot.html"
+if CHATBOT_HTML.exists():
+    print("[STARTUP] ✓ Chatbot frontend found at chatbot.html")
+
+# ============================================================================
+# RAG CHATBOT ENDPOINTS
+# ============================================================================
+
+@app.get("/chat")
+async def chat_frontend():
+    """
+    Chat endpoint - serves the standalone chatbot frontend (no credentials required).
+    """
+    if CHATBOT_HTML.exists():
+        return FileResponse(str(CHATBOT_HTML))
+    else:
+        raise HTTPException(status_code=404, detail="Chatbot frontend not found")
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    RAG Chatbot endpoint - answers questions using the RAG pipeline.
+    
+    REQUEST:
+    {
+        "question": "What are the admission requirements?",
+        "chat_id": null  // null = new chat, or "abc-123" = existing chat
+    }
+    
+    RESPONSE:
+    {
+        "answer": "The admission requirements are...",
+        "chat_id": "550e8400-e29b-41d4-a716-446655440000"
+    }
+    """
+    if rag_pipeline is None:
+        raise HTTPException(
+            status_code=503,
+            detail="RAG pipeline not initialized. Please check server logs."
+        )
+    
+    print(f"\n[API] /chat endpoint called")
+    print(f"     Question: {request.question[:60]}...")
+    print(f"     Chat ID: {request.chat_id or 'NEW CHAT'}")
+    
+    try:
+        # Get or create chat
+        if request.chat_id:
+            chat = storage.get_chat(request.chat_id)
+            if chat is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Chat {request.chat_id} not found"
+                )
+        else:
+            chat = storage.create_chat()
+            print(f"[CHAT] Created new chat: {chat.chat_id}")
+        
+        # Save user's question
+        storage.add_message_to_chat(chat.chat_id, request.question, "user")
+        
+        # Get answer from RAG pipeline
+        print(f"[RAG] Querying RAG pipeline...")
+        answer = rag_pipeline.answer_question(request.question)
+        print(f"[RAG] ✓ Response generated")
+        
+        # Save assistant's answer
+        storage.add_message_to_chat(chat.chat_id, answer, "assistant")
+        
+        # Return response
+        return ChatResponse(
+            answer=answer,
+            chat_id=chat.chat_id
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Exception in /chat: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing chat: {str(e)}"
+        )
