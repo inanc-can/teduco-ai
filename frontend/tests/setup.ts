@@ -6,6 +6,7 @@
 import { expect, afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
+import type { TestingLibraryMatchers } from '@testing-library/jest-dom/matchers'
 
 // Cleanup after each test
 afterEach(() => {
@@ -103,4 +104,4 @@ global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   thresholds: [],
 }))
 
-console.log('Test environment initialized')
+// Setup complete - tests can run

@@ -5,7 +5,7 @@ Test utilities and helpers for backend tests
 from typing import Dict, Any, Optional
 from unittest.mock import MagicMock
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def create_mock_jwt_token(user_id: str = "test-user-123", exp_minutes: int = 60) -> str:
@@ -19,10 +19,11 @@ def create_mock_jwt_token(user_id: str = "test-user-123", exp_minutes: int = 60)
     Returns:
         Mock JWT token string
     """
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
-        "exp": datetime.utcnow() + timedelta(minutes=exp_minutes),
-        "iat": datetime.utcnow(),
+        "exp": now + timedelta(minutes=exp_minutes),
+        "iat": now,
     }
     # Use a test secret - this is only for testing!
     return jwt.encode(payload, "test-secret", algorithm="HS256")
@@ -161,7 +162,7 @@ def generate_mock_user_data(user_id: Optional[str] = None) -> Dict[str, Any]:
         "email": "test@example.com",
         "first_name": "Test",
         "last_name": "User",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -174,7 +175,7 @@ def generate_mock_document_data(doc_id: Optional[str] = None) -> Dict[str, Any]:
         "file_size": 102400,
         "doc_type": "transcript",
         "upload_path": "uploads/test.pdf",
-        "uploaded_at": datetime.utcnow().isoformat(),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
         "status": "processed",
     }
 
@@ -185,7 +186,7 @@ def generate_mock_chat_data(chat_id: Optional[str] = None) -> Dict[str, Any]:
         "chat_id": chat_id or "chat-123-456",
         "user_id": "user-123-456-789",
         "title": "Test Chat",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -199,5 +200,5 @@ def generate_mock_message_data(
         "user_id": "user-123-456-789",
         "role": role,
         "content": "Test message content",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
