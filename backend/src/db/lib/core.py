@@ -1,10 +1,15 @@
 from supabase import create_client
 from uuid import uuid4
 from datetime import date, datetime
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from ...core.config import get_settings
 
 settings = get_settings()
 supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+
+# Thread pool for parallel database queries
+_db_executor = ThreadPoolExecutor(max_workers=4)
 
 # ---------- USERS ----------
 def upsert_user(auth_uid: str, first_name: str, last_name: str, **extras):
@@ -92,29 +97,53 @@ def save_onboarding_preferences(user_id: str, data: dict):
 
 # ---------- GET USER DATA ----------
 def get_user_profile(user_id: str):
-    """Get complete user profile including education and preferences."""
+    """
+    Get complete user profile including education and preferences.
+    Optimized to fetch data in parallel to reduce latency.
+    """
     result = {
         "user": None,
         "education": None,
         "preferences": None
     }
     
-    # Get user basic info
-    user_res = supabase.table("users").select("*").eq("user_id", user_id).execute()
+    # Execute all queries in parallel for better performance
+    def fetch_user():
+        return supabase.table("users").select("*").eq("user_id", user_id).execute()
+    
+    def fetch_high_school():
+        return supabase.table("high_school_education").select("*").eq("user_id", user_id).execute()
+    
+    def fetch_university():
+        return supabase.table("university_education").select("*").eq("user_id", user_id).execute()
+    
+    def fetch_preferences():
+        return supabase.table("onboarding_preferences").select("*").eq("user_id", user_id).execute()
+    
+    # Submit all queries to thread pool for parallel execution
+    futures = {
+        "user": _db_executor.submit(fetch_user),
+        "high_school": _db_executor.submit(fetch_high_school),
+        "university": _db_executor.submit(fetch_university),
+        "preferences": _db_executor.submit(fetch_preferences),
+    }
+    
+    # Collect results
+    user_res = futures["user"].result()
     if user_res.data:
         result["user"] = user_res.data[0]
     
     # Get education info (try both tables)
-    hs_res = supabase.table("high_school_education").select("*").eq("user_id", user_id).execute()
+    hs_res = futures["high_school"].result()
     if hs_res.data:
         result["education"] = {"type": "high-school", **hs_res.data[0]}
     else:
-        uni_res = supabase.table("university_education").select("*").eq("user_id", user_id).execute()
+        uni_res = futures["university"].result()
         if uni_res.data:
             result["education"] = {"type": "university", **uni_res.data[0]}
     
     # Get preferences
-    pref_res = supabase.table("onboarding_preferences").select("*").eq("user_id", user_id).execute()
+    pref_res = futures["preferences"].result()
     if pref_res.data:
         result["preferences"] = pref_res.data[0]
     

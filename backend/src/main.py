@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import EmailStr
 from typing import Optional, List
 from datetime import datetime
@@ -22,6 +23,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add GZip compression middleware to reduce response payload size
+# Compresses responses larger than 1000 bytes for better network performance
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # auxillary function to get current user from Authorization header
@@ -208,15 +213,21 @@ def get_document_signed_url(
     user_id: str = Depends(get_current_user),
     expires_sec: int = 3600  # 1 hour default
 ):
-    """Generate a signed URL for viewing a document."""
-    # Verify the document belongs to the user
-    result = get_user_documents(user_id)
-    document = next((doc for doc in result.data if doc.get("document_id") == document_id), None)
+    """
+    Generate a signed URL for viewing a document.
+    Optimized to query only the specific document instead of all user documents.
+    """
+    # Verify the document belongs to the user with a targeted query
+    result = supabase.table("documents")\
+        .select("storage_path")\
+        .eq("document_id", document_id)\
+        .eq("user_id", user_id)\
+        .execute()
     
-    if not document:
+    if not result.data or len(result.data) == 0:
         raise HTTPException(404, "Document not found")
     
-    storage_path = document.get("storage_path")
+    storage_path = result.data[0].get("storage_path")
     if not storage_path:
         raise HTTPException(400, "Document has no storage path")
     
@@ -398,12 +409,26 @@ def delete_chat(chat_id: str, user_id: str = Depends(get_current_user)):
 @app.get("/chats/{chat_id}/messages")
 def get_messages(
     chat_id: str, 
-    limit: int = 100,
+    limit: int = 50,  # Reduced default from 100 to 50 for better performance
     offset: int = 0,
     user_id: str = Depends(get_current_user)
 ):
-    """Get messages for a specific chat."""
+    """
+    Get messages for a specific chat with pagination.
+    
+    Args:
+        chat_id: The chat identifier
+        limit: Maximum number of messages to return (default: 50, max: 100)
+        offset: Number of messages to skip (for pagination)
+        user_id: Authenticated user ID
+    
+    Returns:
+        List of messages with pagination applied
+    """
     try:
+        # Enforce maximum limit to prevent performance issues
+        limit = min(limit, 100)
+        
         # First verify the chat belongs to the user
         chat_response = supabase.table("chats")\
             .select("id")\
@@ -415,7 +440,7 @@ def get_messages(
         if not chat_response.data:
             raise HTTPException(404, "Chat not found")
         
-        # Fetch messages
+        # Fetch messages with pagination
         response = supabase.table("messages")\
             .select("*")\
             .eq("chat_id", chat_id)\

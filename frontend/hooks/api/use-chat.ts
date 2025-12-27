@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api-client'
 import { toast } from 'sonner'
+import { config } from '@/lib/config'
 
 // Query keys for cache management
 export const chatKeys = {
@@ -19,6 +20,8 @@ export function useChats() {
   return useQuery({
     queryKey: chatKeys.list(),
     queryFn: () => apiClient.getChats(),
+    staleTime: config.cache.chats.staleTime,
+    gcTime: config.cache.chats.gcTime,
   })
 }
 
@@ -30,6 +33,8 @@ export function useChat(chatId: string) {
     queryKey: chatKeys.detail(chatId),
     queryFn: () => apiClient.getChat(chatId),
     enabled: !!chatId,
+    staleTime: config.cache.chats.staleTime,
+    gcTime: config.cache.chats.gcTime,
   })
 }
 
@@ -41,8 +46,10 @@ export function useMessages(chatId: string | undefined) {
     queryKey: chatKeys.messages(chatId || 'none'),
     queryFn: () => apiClient.getMessages(chatId!),
     enabled: !!chatId && chatId !== 'undefined',
-    // Refetch messages every 30 seconds to catch new messages
-    refetchInterval: 30000,
+    staleTime: config.cache.messages.staleTime,
+    gcTime: config.cache.messages.gcTime,
+    // Removed auto-refetch interval - use real-time subscriptions or manual refetch instead
+    // refetchInterval: 30000,
   })
 }
 
