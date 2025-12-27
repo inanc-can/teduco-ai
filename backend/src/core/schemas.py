@@ -1,7 +1,6 @@
 """
 API response models with camelCase conversion for frontend.
 """
-from pydantic import BaseModel, Field
 from typing import Optional, List
 from .models import CamelCaseModel
 
