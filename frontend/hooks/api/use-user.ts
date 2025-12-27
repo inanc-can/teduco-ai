@@ -1,8 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api-client'
 import { toast } from 'sonner'
 import type { UserProfile, UserProfileUpdate } from '@/lib/types/api'
 import type { OnboardingFormValues } from '@/lib/schemas/onboarding'
+import { useOptimisticMutation } from './use-optimistic-mutation'
 
 // Query keys
 export const userKeys = {
@@ -25,32 +26,11 @@ export function useUserProfile() {
  * Update user profile
  */
 export function useUpdateUserProfile() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (data: UserProfileUpdate) => apiClient.updateUserProfile(data),
-    onMutate: async (newProfile) => {
-      await queryClient.cancelQueries({ queryKey: userKeys.profile() })
-
-      const previousProfile = queryClient.getQueryData<UserProfile>(userKeys.profile())
-
-      queryClient.setQueryData<UserProfile>(userKeys.profile(), (old) => ({
-        ...old!,
-        ...newProfile,
-      }))
-
-      return { previousProfile }
-    },
-    onError: (error: Error, _, context) => {
-      if (context?.previousProfile) {
-        queryClient.setQueryData(userKeys.profile(), context.previousProfile)
-      }
-      toast.error(`Failed to update profile: ${error.message}`)
-    },
-    onSuccess: () => {
-      toast.success('Profile updated successfully')
-      queryClient.invalidateQueries({ queryKey: userKeys.profile() })
-    },
+  return useOptimisticMutation<UserProfile, UserProfileUpdate>({
+    queryKey: userKeys.profile(),
+    mutationFn: (data) => apiClient.updateUserProfile(data),
+    successMessage: 'Profile updated successfully',
+    errorMessage: 'Failed to update profile',
   })
 }
 
@@ -68,18 +48,10 @@ export function useOnboardingStatus() {
  * Complete onboarding
  */
 export function useCompleteOnboarding() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: (data: OnboardingFormValues) => apiClient.completeOnboarding(data),
-    onSuccess: () => {
-      toast.success('Onboarding completed!')
-      // Invalidate both onboarding status and user profile
-      queryClient.invalidateQueries({ queryKey: userKeys.onboarding() })
-      queryClient.invalidateQueries({ queryKey: userKeys.profile() })
-    },
-    onError: (error: Error) => {
-      toast.error(`Failed to complete onboarding: ${error.message}`)
-    },
+  return useOptimisticMutation<UserProfile, OnboardingFormValues>({
+    queryKey: userKeys.onboarding(),
+    mutationFn: (data) => apiClient.completeOnboarding(data),
+    successMessage: 'Onboarding completed!',
+    errorMessage: 'Failed to complete onboarding',
   })
 }
