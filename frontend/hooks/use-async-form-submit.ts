@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 
 interface UseAsyncFormSubmitOptions<T> {
-  onSubmit: (data: T) => Promise<void>
+  onSubmit: (data?: T) => Promise<void>
   onError?: (error: Error) => void
   errorMessage?: string
 }
@@ -30,7 +30,7 @@ export function useAsyncFormSubmit<T = void>({
     setIsLoading(true)
 
     try {
-      await onSubmit(data as T)
+      await onSubmit(data)
     } catch (error) {
       const err = error instanceof Error ? error : new Error(errorMessage)
       

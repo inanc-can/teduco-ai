@@ -29,11 +29,12 @@ export function useOptimisticMutation<TData, TVariables>({
       // Snapshot previous value
       const previousData = queryClient.getQueryData<TData>(queryKey)
 
-      // Optimistically update
-      queryClient.setQueryData<TData>(queryKey, (old) => ({
-        ...old!,
-        ...newData,
-      }))
+      // Optimistically update only if we have existing data
+      if (previousData) {
+        queryClient.setQueryData<TData>(queryKey, (old) => 
+          old ? { ...old, ...newData } : old
+        )
+      }
 
       return { previousData }
     },

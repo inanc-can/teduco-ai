@@ -18,9 +18,9 @@ def add_optional_field(payload: dict, data: dict, camel_key: str, snake_key: str
         snake_key: The snake_case key for the payload (defaults to camel_key)
         converter: Optional function to convert the value (e.g., int, float)
     """
-    if value := data.get(camel_key):
+    if camel_key in data and data[camel_key] is not None:
         target_key = snake_key or camel_key
-        payload[target_key] = converter(value) if converter else value
+        payload[target_key] = converter(data[camel_key]) if converter else data[camel_key]
 
 def parse_date_flexible(date_string: str) -> Optional[str]:
     """Parse date from various formats and return ISO format string.

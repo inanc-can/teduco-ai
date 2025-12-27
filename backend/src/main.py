@@ -53,8 +53,15 @@ def get_signed_url(path: str, expires_sec: int = 60):
 
 
 # Helper function to verify chat ownership
-def verify_chat_ownership(chat_id: str, user_id: str):
+def verify_chat_ownership(chat_id: str, user_id: str) -> None:
     """Verify that a chat belongs to the specified user.
+    
+    Args:
+        chat_id: The ID of the chat to verify
+        user_id: The ID of the user who should own the chat
+    
+    Returns:
+        None if verification succeeds
     
     Raises:
         HTTPException: 404 if chat not found or doesn't belong to user
