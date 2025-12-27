@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import {
   ArrowUpRight,
@@ -12,7 +12,8 @@ import {
   Plus,
 } from "lucide-react"
 import { toast } from "sonner"
-import { supabase, getCachedSession } from "@/lib/supabase"
+import { supabase } from "@/lib/supabase"
+import { useChats, useCreateChat, useDeleteChat, useUpdateChat } from "@/hooks/api/use-chat"
 
 import {
   DropdownMenu,
@@ -32,56 +33,18 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 
-interface Chat {
-  id: string
-  title: string
-  emoji: string
-  is_pinned: boolean
-  last_message_at: string
-  created_at: string
-}
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
-
 export function NavChats() {
   const { isMobile } = useSidebar()
   const router = useRouter()
-  const [chats, setChats] = useState<Chat[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  
+  // Use React Query hooks
+  const { data: chats = [], isLoading, refetch } = useChats()
+  const createChatMutation = useCreateChat()
+  const deleteChatMutation = useDeleteChat()
+  const updateChatMutation = useUpdateChat()
 
-  const fetchChats = async () => {
-    try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        console.error("No session found")
-        setIsLoading(false)
-        return
-      }
-
-      const response = await fetch(`${BACKEND_URL}/chats`, {
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setChats(data)
-      } else {
-        console.error("Failed to fetch chats:", response.status)
-      }
-    } catch (error) {
-      console.error("Error fetching chats:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
+  // Set up realtime subscription for updates from other tabs/devices
   useEffect(() => {
-    fetchChats()
-
-    // Set up realtime subscription for updates from other tabs/devices
     const channel = supabase
       .channel('chats-changes')
       .on(
@@ -92,28 +55,10 @@ export function NavChats() {
           table: 'chats'
         },
         (payload) => {
-          // Only update if the change came from another source (not this client)
-          // This prevents double-fetching when we make changes ourselves
-          if (payload.eventType === 'INSERT' && payload.new.id.startsWith('temp-')) {
-            // Ignore optimistic updates
-            return
-          }
-          
-          // Update specific chat instead of refetching all
-          if (payload.eventType === 'INSERT') {
-            setChats(prev => {
-              const exists = prev.some(chat => chat.id === payload.new.id)
-              if (!exists) {
-                return [payload.new as Chat, ...prev]
-              }
-              return prev
-            })
-          } else if (payload.eventType === 'UPDATE') {
-            setChats(prev => prev.map(chat => 
-              chat.id === payload.new.id ? payload.new as Chat : chat
-            ))
-          } else if (payload.eventType === 'DELETE') {
-            setChats(prev => prev.filter(chat => chat.id !== payload.old.id))
+          // Refetch chats when changes occur from other sources
+          // React Query will handle deduplication and caching
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+            refetch()
           }
         }
       )
@@ -122,140 +67,36 @@ export function NavChats() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [refetch])
 
   const createNewChat = async () => {
-    try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        toast.error("Please log in to create a chat")
-        return
-      }
-
-      // Create optimistic chat entry
-      const tempId = `temp-${Date.now()}`
-      const optimisticChat: Chat = {
-        id: tempId,
-        title: "New Chat",
-        emoji: "💬",
-        is_pinned: false,
-        last_message_at: new Date().toISOString(),
-        created_at: new Date().toISOString()
-      }
-      
-      // Add to UI immediately
-      setChats(prev => [optimisticChat, ...prev])
-
-      const response = await fetch(`${BACKEND_URL}/chats`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
+    createChatMutation.mutate(
+      { title: "New Chat" },
+      {
+        onSuccess: (newChat) => {
+          router.push(`/dashboard?chat=${newChat.chatId}`)
         },
-        body: JSON.stringify({
-          title: "New Chat",
-          emoji: "💬"
-        }),
-      })
-
-      if (response.ok) {
-        const newChat = await response.json()
-        
-        // Replace optimistic chat with real one
-        setChats(prev => prev.map(chat => 
-          chat.id === tempId ? newChat : chat
-        ))
-        
-        // Navigate to new chat (this only updates the dashboard, not sidebar)
-        router.push(`/dashboard?chat=${newChat.id}`)
-        toast.success("New chat created")
-      } else {
-        // Remove optimistic chat on error
-        setChats(prev => prev.filter(chat => chat.id !== tempId))
-        toast.error("Failed to create chat")
       }
-    } catch (error) {
-      console.error("Error creating chat:", error)
-      toast.error("Failed to create chat")
-    }
+    )
   }
 
-  const deleteChat = async (chatId: string, chatTitle: string) => {
-    try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        toast.error("Please log in")
-        return
-      }
-
-      // Optimistically remove from UI
-      setChats(prev => prev.filter(chat => chat.id !== chatId))
-
-      const response = await fetch(`${BACKEND_URL}/chats/${chatId}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-
-      if (response.ok) {
+  const deleteChat = (chatId: string, chatTitle: string) => {
+    deleteChatMutation.mutate(chatId, {
+      onSuccess: () => {
         toast.success(`"${chatTitle}" deleted`)
-      } else {
-        // Restore on error by refetching
-        fetchChats()
-        toast.error("Failed to delete chat")
-      }
-    } catch (error) {
-      console.error("Error deleting chat:", error)
-      fetchChats()
-      toast.error("Failed to delete chat")
-    }
+      },
+    })
   }
 
-  const togglePinChat = async (chatId: string, currentPinned: boolean) => {
-    try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        toast.error("Please log in")
-        return
-      }
-
-      // Optimistically update UI
-      setChats(prev => prev.map(chat => 
-        chat.id === chatId ? { ...chat, is_pinned: !currentPinned } : chat
-      ))
-
-      const response = await fetch(`${BACKEND_URL}/chats/${chatId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
+  const togglePinChat = (chatId: string, currentPinned: boolean) => {
+    updateChatMutation.mutate(
+      { chatId, is_pinned: !currentPinned },
+      {
+        onSuccess: () => {
+          toast.success(currentPinned ? "Unpinned" : "Pinned")
         },
-        body: JSON.stringify({
-          is_pinned: !currentPinned
-        }),
-      })
-
-      if (response.ok) {
-        toast.success(currentPinned ? "Unpinned" : "Pinned")
-      } else {
-        // Revert on error
-        setChats(prev => prev.map(chat => 
-          chat.id === chatId ? { ...chat, is_pinned: currentPinned } : chat
-        ))
-        toast.error("Failed to update chat")
       }
-    } catch (error) {
-      console.error("Error updating chat:", error)
-      // Revert on error
-      setChats(prev => prev.map(chat => 
-        chat.id === chatId ? { ...chat, is_pinned: currentPinned } : chat
-      ))
-      toast.error("Failed to update chat")
-    }
+    )
   }
 
   if (isLoading) {
@@ -290,9 +131,9 @@ export function NavChats() {
           </div>
         ) : (
           chats.map((chat) => (
-            <SidebarMenuItem key={chat.id}>
+            <SidebarMenuItem key={chat.chatId}>
               <SidebarMenuButton asChild>
-                <a href={`/dashboard?chat=${chat.id}`} title={chat.title}>
+                <a href={`/dashboard?chat=${chat.chatId}`} title={chat.title}>
                   <span>{chat.emoji}</span>
                   <span className="truncate">{chat.title}</span>
                 </a>
@@ -309,8 +150,8 @@ export function NavChats() {
                   side={isMobile ? "bottom" : "right"}
                   align={isMobile ? "end" : "start"}
                 >
-                  <DropdownMenuItem onClick={() => togglePinChat(chat.id, chat.is_pinned)}>
-                    {chat.is_pinned ? (
+                  <DropdownMenuItem onClick={() => togglePinChat(chat.chatId, chat.isPinned)}>
+                    {chat.isPinned ? (
                       <>
                         <StarOff className="text-muted-foreground" />
                         <span>Unpin</span>
@@ -324,14 +165,14 @@ export function NavChats() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={() => {
-                    navigator.clipboard.writeText(`${window.location.origin}/dashboard?chat=${chat.id}`)
+                    navigator.clipboard.writeText(`${window.location.origin}/dashboard?chat=${chat.chatId}`)
                     toast.success("Link copied to clipboard")
                   }}>
                     <Link className="text-muted-foreground" />
                     <span>Copy Link</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => {
-                    window.open(`/dashboard?chat=${chat.id}`, '_blank')
+                    window.open(`/dashboard?chat=${chat.chatId}`, '_blank')
                   }}>
                     <ArrowUpRight className="text-muted-foreground" />
                     <span>Open in New Tab</span>
@@ -339,7 +180,7 @@ export function NavChats() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="text-destructive"
-                    onClick={() => deleteChat(chat.id, chat.title)}
+                    onClick={() => deleteChat(chat.chatId, chat.title)}
                   >
                     <Trash2 />
                     <span>Delete</span>

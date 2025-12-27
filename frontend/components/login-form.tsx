@@ -30,22 +30,47 @@ export function LoginForm({
     setIsLoading(true)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
-      if (error) {
-        toast.error(error.message)
+      if (authError) {
+        toast.error(authError.message || "Invalid email or password")
         return
       }
 
-      toast.success("Logged in successfully!")
-      // Refresh to trigger middleware redirect
-      router.refresh()
+      if (!authData.session) {
+        toast.error("Could not create session. Please try again.")
+        return
+      }
+
+      // Check if user needs onboarding
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('onboarding_completed')
+        .eq('id', authData.user.id)
+        .single()
+
+      if (userError) {
+        console.error('Error fetching user data:', userError)
+        // Continue to dashboard anyway - the middleware will handle onboarding check
+        router.push('/dashboard')
+        return
+      }
+
+      // Redirect based on onboarding status
+      if (userData?.onboarding_completed) {
+        router.push('/dashboard')
+        toast.success("Welcome back!")
+      } else {
+        router.push('/onboarding')
+        toast.success("Please complete your profile")
+      }
+
     } catch (error) {
-      toast.error("An unexpected error occurred")
-      console.error(error)
+      toast.error("An unexpected error occurred. Please try again.")
+      console.error('Login error:', error)
     } finally {
       setIsLoading(false)
     }

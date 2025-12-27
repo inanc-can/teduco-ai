@@ -3,6 +3,8 @@ import { cookies } from "next/headers"
 import { createServerClient } from '@supabase/ssr'
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarProvider } from "@/components/ui/sidebar"
+import { ErrorBoundary } from "@/components/error-boundary"
+import { serverApi } from "@/lib/server-api-client"
 
 type UserData = {
   name: string
@@ -33,19 +35,20 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
     redirect('/login')
   }
 
-  // Get user profile from users table
-  const { data: profile } = await supabase
-    .from('users')
-    .select('first_name, last_name, onboarding_completed')
-    .eq('user_id', authUser.id)
-    .single()
-
-  if (!profile) {
-    redirect('/login')
+  // Get user profile from backend API instead of direct database call
+  // Fall back to email if profile fetch fails (e.g., new user during onboarding)
+  let profile
+  try {
+    profile = await serverApi.getProfile()
+  } catch (error) {
+    console.error('Failed to fetch profile:', error)
+    // Don't redirect - user might be in onboarding flow
+    // Just use email as fallback
+    profile = null
   }
 
   const fullName = profile 
-    ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
+    ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim()
     : authUser.email?.split('@')[0] || 'User'
 
   const userData: UserData = {
@@ -57,7 +60,9 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   return (
     <SidebarProvider>
       <AppSidebar user={userData} />
-      {children}
+      <ErrorBoundary>
+        {children}
+      </ErrorBoundary>
     </SidebarProvider>
   )
 }

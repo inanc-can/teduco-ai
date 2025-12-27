@@ -8,6 +8,8 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        # Allow both uppercase and lowercase environment variables
+        case_sensitive = False
 
 @lru_cache
 def get_settings():

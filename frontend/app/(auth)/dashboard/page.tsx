@@ -1,272 +1,206 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
-import { useSearchParams } from "next/navigation"
-import { supabase, getCachedSession } from "@/lib/supabase"
+import { useState, useCallback } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 
-import { cn } from "@/lib/utils"
 import { Chat } from "@/components/ui/chat"
+import { useMessages, useSendMessage, useCreateChat } from "@/hooks/api/use-chat"
+import { useChatStream } from "@/hooks/use-websocket"
+import { useUserProfile } from "@/hooks/api/use-user"
+import { logger } from "@/lib/logger"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { cn } from "@/lib/utils"
 
 type Message = {
   id: string
   role: 'user' | 'assistant'
   content: string
+  pending?: boolean
 }
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
-
 
 // Mock transcribeAudio function
 const transcribeAudio = async (audioBlob: Blob): Promise<string> => {
-  // Mock implementation: return a fixed string
+  logger.logAction('transcribe_audio', { size: audioBlob.size })
   console.log('Mock transcribing audio blob:', audioBlob)
   return "Transcribed audio: Hello, this is a mock transcription."
 }
 
-// Custom useChat hook with database integration
-function useChatWithDB({ chatId }: { chatId?: string }) {
-  const [messages, setMessages] = useState<Message[]>([])
+export default function DashboardPage() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const chatId = searchParams.get('chat') || undefined
+  
   const [input, setInput] = useState("")
-  const [status, setStatus] = useState<'ready' | 'submitted' | 'streaming'>('ready')
-  const [isLoading, setIsLoading] = useState(false)
-  const [currentChatId, setCurrentChatId] = useState<string | undefined>(chatId)
 
-  // Load messages when chatId changes
-  useEffect(() => {
-    if (!chatId) {
-      setIsLoading(false)
-      setMessages([])
-      setCurrentChatId(undefined)
-      return
-    }
+  // Fetch user profile using React Query
+  const { data: userProfile } = useUserProfile()
+  
+  // Fetch messages using React Query
+  const { 
+    data: messages = [], 
+    isLoading, 
+    error,
+    refetch 
+  } = useMessages(chatId)
 
-    setIsLoading(true)
-    setCurrentChatId(chatId)
+  // Mutations
+  const sendMessage = useSendMessage()
+  const createChat = useCreateChat()
 
-    const loadMessages = async () => {
-      try {
-        const session = await getCachedSession()
-        
-        if (!session) {
-          console.error("No session found")
-          setIsLoading(false)
-          return
-        }
+  // WebSocket for real-time streaming
+  const {
+    streamingMessage,
+    isStreaming,
+    sendChatMessage,
+    isConnected: wsConnected,
+  } = useChatStream(chatId)
 
-        const response = await fetch(`${BACKEND_URL}/chats/${chatId}/messages`, {
-          headers: {
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-        })
+  // Extract user name from profile
+  const userName = userProfile?.firstName || null
 
-        if (response.ok) {
-          const data = await response.json()
-          setMessages(data.map((msg: Message) => ({
-            id: msg.id,
-            role: msg.role,
-            content: msg.content
-          })))
-        } else {
-          console.error("Failed to load messages:", response.status)
-          toast.error("Failed to load messages")
-        }
-      } catch (error) {
-        console.error("Error loading messages:", error)
-        toast.error("Failed to load messages")
-      } finally {
-        setIsLoading(false)
-      }
-    }
+  // Transform API messages to display format (filter out system messages)
+  const transformedMessages: Message[] = messages
+    .filter(msg => msg.role !== 'system')
+    .map(msg => ({
+      id: msg.messageId,
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    }))
 
-    loadMessages()
-  }, [chatId])
+  // Combine database messages with streaming message
+  const displayMessages: Message[] = [
+    ...transformedMessages,
+    ...(isStreaming && streamingMessage
+      ? [{
+          id: 'streaming-message',
+          role: 'assistant' as const,
+          content: streamingMessage,
+          pending: true,
+        }]
+      : []),
+  ]
 
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
-  }, [])
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setInput(e.target.value)
+    },
+    []
+  )
 
-  const handleSubmit = useCallback(async (event?: { preventDefault?: () => void }) => {
-    if (event?.preventDefault) event.preventDefault()
-    if (!input.trim()) return
+  const handleSubmit = useCallback(
+    async (
+      event?: { preventDefault?: () => void },
+      options?: { experimental_attachments?: FileList }
+    ) => {
+      if (event?.preventDefault) event.preventDefault()
+      if (!input.trim()) return
 
-    const userMessageContent = input.trim()
-    setInput("")
-    setStatus('submitted')
+      const messageContent = input.trim()
+      const files = options?.experimental_attachments
+        ? Array.from(options.experimental_attachments)
+        : undefined
 
-    // Optimistically add user message to UI
-    const tempUserMessage: Message = {
-      id: `temp-${Date.now()}`,
-      role: 'user',
-      content: userMessageContent
-    }
-    setMessages(prev => [...prev, tempUserMessage])
+      logger.logAction('send_message', { 
+        chatId, 
+        hasFiles: !!files?.length,
+        fileCount: files?.length 
+      })
 
-    try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        toast.error("Please log in")
-        setStatus('ready')
+      setInput("")
+
+      // If no chat exists, create one first
+      if (!chatId) {
+        createChat.mutate(
+          { title: 'New Chat' },
+          {
+            onSuccess: (newChat) => {
+              // Update URL with new chat ID
+              router.push(`/dashboard?chat=${newChat.chatId}`)
+              
+              // Send the message to the new chat
+              setTimeout(() => {
+                sendMessage.mutate(
+                  { chatId: newChat.chatId, message: messageContent, files },
+                  {
+                    onSuccess: () => {
+                      if (wsConnected) {
+                        sendChatMessage(messageContent, files)
+                      }
+                    }
+                  }
+                )
+              }, 100)
+            },
+            onError: (error) => {
+              logger.error('Failed to create chat', error as Error)
+            }
+          }
+        )
         return
       }
 
-      setStatus('streaming')
-
-      // If no chat exists yet, create one first
-      let activeChatId = currentChatId
-      if (!activeChatId) {
-        const createResponse = await fetch(`${BACKEND_URL}/chats`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            title: "New Chat",
-            emoji: "💬"
-          }),
-        })
-
-        if (createResponse.ok) {
-          const newChat = await createResponse.json()
-          activeChatId = newChat.id
-          setCurrentChatId(activeChatId)
-          // Update URL without reload
-          window.history.replaceState(null, '', `/dashboard?chat=${activeChatId}`)
-        } else {
-          toast.error("Failed to create chat")
-          setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
-          setStatus('ready')
-          return
-        }
-      }
-
-      const response = await fetch(`${BACKEND_URL}/chats/${activeChatId}/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          content: userMessageContent
-        }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        
-        // Replace temp message with real one and add AI response
-        setMessages(prev => {
-          const withoutTemp = prev.filter(m => m.id !== tempUserMessage.id)
-          const newMessages: Message[] = [
-            ...withoutTemp,
-            {
-              id: data.user_message.id,
-              role: 'user',
-              content: data.user_message.content
+      // Send message to existing chat
+      sendMessage.mutate(
+        { chatId, message: messageContent, files },
+        {
+          onSuccess: () => {
+            // Also send through WebSocket for real-time streaming
+            if (wsConnected) {
+              sendChatMessage(messageContent, files)
             }
-          ]
-          
-          if (data.assistant_message) {
-            newMessages.push({
-              id: data.assistant_message.id,
-              role: 'assistant',
-              content: data.assistant_message.content
-            })
-          }
-          
-          return newMessages
-        })
-      } else {
-        toast.error("Failed to send message")
-        // Remove temp message on error
-        setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
-      }
-    } catch (error) {
-      console.error("Error sending message:", error)
-      toast.error("Failed to send message")
-      setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id))
-    } finally {
-      setStatus('ready')
-    }
-  }, [input, currentChatId])
-
-  const append = useCallback((message: { role: "user"; content: string; }) => {
-    const fullMessage: Message = {
-      id: Date.now().toString(),
-      ...message
-    }
-    setMessages(prev => [...prev, fullMessage])
-  }, [])
+          },
+          onError: (error) => {
+            logger.error('Failed to send message', error as Error, { chatId })
+          },
+        }
+      )
+    },
+    [input, chatId, sendMessage, createChat, sendChatMessage, wsConnected, router]
+  )
 
   const stop = useCallback(() => {
-    setStatus('ready')
+    logger.logAction('stop_generation', { chatId })
+    toast.info("Stop generation not yet implemented")
+  }, [chatId])
+
+  const append = useCallback((message: { role: "user"; content: string }) => {
+    // This is handled by React Query optimistic updates
+    logger.logAction('append_message', { role: message.role })
   }, [])
 
-  return {
-    messages,
-    input,
-    handleInputChange,
-    handleSubmit,
-    append,
-    stop,
-    status,
-    isLoading,
-    setMessages,
-  }
-}
+  const isEmpty = displayMessages.length === 0
 
-export default function DashboardPage() {
-  const searchParams = useSearchParams()
-  const chatId = searchParams.get('chat')
-
-  const {
-    messages,
-    input,
-    handleInputChange,
-    handleSubmit,
-    append,
-    stop,
-    status,
-    isLoading,
-    setMessages,
-  } = useChatWithDB({ chatId: chatId || undefined })
-
-  const [userName, setUserName] = useState<string | null>(null)
-
-  useEffect(() => {
-    async function loadUserName() {
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser()
-        if (authUser) {
-          const { data: profile } = await supabase
-            .from('users')
-            .select('first_name')
-            .eq('user_id', authUser.id)
-            .single()
-          
-          if (profile?.first_name) {
-            setUserName(profile.first_name)
-          }
-        }
-      } catch (error) {
-        console.error('Error loading user name:', error)
-      }
-    }
-    loadUserName()
-  }, [])
-
-  const isEmpty = messages.length === 0
-
+  // Loading state
   if (isLoading && chatId) {
     return (
-      <div className="relative flex flex-col h-screen w-full overflow-hidden">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" />
-          </div>
+      <div className="flex flex-col h-screen w-full items-center justify-center p-4">
+        <div className="w-full max-w-2xl space-y-4">
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-3/4" />
+          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-20 w-2/3" />
         </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (error && chatId) {
+    return (
+      <div className="flex flex-col h-screen w-full items-center justify-center p-4">
+        <Alert variant="destructive" className="max-w-2xl">
+          <AlertDescription>
+            Failed to load messages: {error.message}
+            <button
+              onClick={() => refetch()}
+              className="ml-2 underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </AlertDescription>
+        </Alert>
       </div>
     )
   }
@@ -284,14 +218,14 @@ export default function DashboardPage() {
             "w-full h-full transition-all duration-500 ease-out",
             isEmpty && "max-h-[600px]"
           )}
-          messages={messages}
+          messages={displayMessages}
           handleSubmit={handleSubmit}
           input={input}
           handleInputChange={handleInputChange}
-          isGenerating={status === 'submitted' || status === 'streaming'}
+          isGenerating={sendMessage.isPending || isStreaming || createChat.isPending}
           stop={stop}
           append={append}
-          setMessages={setMessages}
+          setMessages={() => {}} // Handled by React Query
           transcribeAudio={transcribeAudio}
           suggestions={[
             "How can I apply to TUM?",
@@ -302,6 +236,13 @@ export default function DashboardPage() {
           welcomeMessage={userName ? `Teduco'ya Hoşgeldin ${userName}` : "Teduco'ya Hoşgeldin"}
         />
       </div>
+      
+      {/* WebSocket connection indicator */}
+      {!wsConnected && chatId && (
+        <div className="fixed bottom-4 right-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg px-4 py-2 text-sm">
+          Reconnecting to real-time updates...
+        </div>
+      )}
     </div>
   )
 }

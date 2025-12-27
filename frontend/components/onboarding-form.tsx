@@ -29,6 +29,7 @@ import Multiselect, { type Option } from "@/components/ui/multiselect";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getStepSchema, type OnboardingFormValues } from "@/lib/schemas/onboarding";
+import { useCompleteOnboarding } from "@/hooks/api/use-user";
 
 const steps = [
   { id: "personal", title: "Personal" },
@@ -114,8 +115,10 @@ const contentVariants = {
 
 const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({});
+  
+  // React Query mutation
+  const completeOnboarding = useCompleteOnboarding();
   
   const {
     control,
@@ -192,55 +195,12 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   };
 
   const handleFormSubmit = async (data: Record<string, unknown>) => {
-    setIsSubmitting(true);
     try {
-      // Get the current session token
-      const { supabase } = await import("@/lib/supabase");
-      const { data: { session } } = await supabase.auth.getSession();
-      
-      if (!session) {
-        toast.error("You must be logged in to complete onboarding");
-        return;
-      }
-
-      const res = await fetch("/api/onboarding", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(data),
-      });
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to submit");
-      }
-      
-      // Mark onboarding as completed
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (user) {
-        const { error: updateError } = await supabase
-          .from('users')
-          .update({
-            onboarding_completed: true,
-            onboarding_completed_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id);
-
-        if (updateError) {
-          console.error('Failed to mark onboarding as completed:', updateError);
-        }
-      }
-      
-      toast.success("Onboarding completed! Welcome to Teduco.");
-      onComplete?.(data as OnboardingFormValues);
+      await completeOnboarding.mutateAsync(data as OnboardingFormValues)
+      onComplete?.(data as OnboardingFormValues)
     } catch (error) {
-      console.error("Submission error:", error);
-      toast.error(error instanceof Error ? error.message : "Submission failed. Please try again.");
-    } finally {
-      setIsSubmitting(false);
+      // Error already handled by the hook
+      console.error("Submission error:", error)
     }
   };
 
@@ -817,10 +777,10 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                 <Button
                   type="button"
                   onClick={currentStep === steps.length - 1 ? rhfHandleSubmit(handleFormSubmit) : nextStep}
-                  disabled={isSubmitting}
+                  disabled={completeOnboarding.isPending}
                   className="flex items-center gap-1"
                 >
-                  {isSubmitting ? (
+                  {completeOnboarding.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" /> Submitting...
                     </>

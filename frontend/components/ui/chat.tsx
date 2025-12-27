@@ -283,10 +283,12 @@ export function ChatMessages({
   )
 }
 
+// ...existing code...
+
 export const ChatContainer = forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & { isEmpty?: boolean }
->(({ className, ...props }, ref) => {
+>(({ className, isEmpty, ...props }, ref) => {
   return (
     <div
       ref={ref}
@@ -299,6 +301,8 @@ export const ChatContainer = forwardRef<
   )
 })
 ChatContainer.displayName = "ChatContainer"
+
+// ...existing code...
 
 interface ChatFormProps {
   className?: string
