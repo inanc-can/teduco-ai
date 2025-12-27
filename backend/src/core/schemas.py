@@ -3,7 +3,6 @@ API response models with camelCase conversion for frontend.
 """
 from pydantic import BaseModel, Field
 from typing import Optional, List
-from datetime import date
 from .models import CamelCaseModel
 
 # ========== User Profile Models ==========
