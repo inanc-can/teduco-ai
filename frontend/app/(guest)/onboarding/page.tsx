@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { Skeleton } from "@/components/ui/skeleton";
 import OnboardingForm from "@/components/onboarding-form";
+import { useOnboardingStatus } from "@/hooks/api/use-user";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: onboardingStatus, isLoading } = useOnboardingStatus();
 
   useEffect(() => {
     async function checkAuth() {
@@ -18,20 +20,6 @@ export default function OnboardingPage() {
           router.push('/login');
           return;
         }
-
-        // Check if already completed onboarding
-        const { data: profile } = await supabase
-          .from('users')
-          .select('onboarding_completed')
-          .eq('user_id', user.id)
-          .single();
-
-        if (profile?.onboarding_completed) {
-          router.push('/dashboard');
-          return;
-        }
-
-        setIsLoading(false);
       } catch (error) {
         console.error('Error checking auth:', error);
         router.push('/login');
@@ -41,12 +29,19 @@ export default function OnboardingPage() {
     checkAuth();
   }, [router]);
 
+  // Redirect if already completed onboarding
+  useEffect(() => {
+    if (onboardingStatus?.completed) {
+      router.push('/dashboard');
+    }
+  }, [onboardingStatus, router]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Loading...</p>
+        <div className="text-center space-y-4 max-w-md w-full px-4">
+          <Skeleton className="h-12 w-12 rounded-full mx-auto" />
+          <Skeleton className="h-4 w-32 mx-auto" />
         </div>
       </div>
     );

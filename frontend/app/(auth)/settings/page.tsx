@@ -7,7 +7,7 @@ import { Loader2, Save, User, Briefcase, GraduationCap, FileText, Upload, X, Eye
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
-import { supabase, getCachedSession } from "@/lib/supabase"
+import { apiClient } from "@/lib/api-client"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,8 +16,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import Multiselect, { type Option } from "@/components/ui/multiselect"
 import type { OnboardingFormValues } from "@/lib/schemas/onboarding"
+import { useSettings, useUpdateSettings } from "@/hooks/api/use-settings"
+import { useDocuments, useUploadDocument, useDeleteDocument } from "@/hooks/api/use-documents"
 
 type ApplicantType = "high-school" | "university"
 
@@ -55,20 +59,25 @@ const fadeInUp = {
 }
 
 type DocumentType = {
-  document_id: string
-  user_id: string
-  doc_type: string
-  storage_path: string
-  mime_type: string
-  uploaded_at: string
+  documentId: string
+  userId: string
+  docType: string
+  storagePath: string
+  mimeType: string
+  uploadedAt: string
+  createdAt?: string
 }
 
 export default function SettingsPage() {
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState("personal")
   const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({})
-  const [existingDocuments, setExistingDocuments] = useState<DocumentType[]>([])
+
+  // React Query hooks
+  const { data: settings, isLoading, error: settingsError } = useSettings()
+  const { data: existingDocuments = [], isLoading: docsLoading } = useDocuments()
+  const updateSettings = useUpdateSettings()
+  const uploadDocument = useUploadDocument()
+  const deleteDocument = useDeleteDocument()
 
   const {
     control,
@@ -80,6 +89,13 @@ export default function SettingsPage() {
   } = useForm<Partial<OnboardingFormValues>>({
     defaultValues: {},
   })
+
+  // Load settings data when available
+  useEffect(() => {
+    if (settings) {
+      reset(settings)
+    }
+  }, [settings, reset])
 
   const formData = watch()
   const applicantType = formData.applicantType as ApplicantType | undefined
@@ -103,16 +119,12 @@ export default function SettingsPage() {
     }))
   }
 
-  const handleReviewFile = async (storagePath: string) => {
+  const handleReviewFile = async (documentId: string) => {
     try {
-      const { data, error } = await supabase.storage
-        .from('user-documents')
-        .createSignedUrl(storagePath, 60 * 60) // 1 hour expiry
+      const { signedUrl } = await apiClient.getDocumentSignedUrl(documentId, 3600) // 1 hour expiry
       
-      if (error) throw error
-      
-      if (data?.signedUrl) {
-        window.open(data.signedUrl, '_blank')
+      if (signedUrl) {
+        window.open(signedUrl, '_blank')
       }
     } catch (error) {
       console.error("Failed to review file:", error)
@@ -122,197 +134,58 @@ export default function SettingsPage() {
 
   const handleRemoveExistingFile = async (documentId: string) => {
     try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        toast.error("You must be logged in")
-        return
-      }
-
-      const res = await fetch(`http://localhost:8000/documents/${documentId}`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
-      
-      if (res.ok) {
-        setExistingDocuments(prev => prev.filter(doc => doc.document_id !== documentId))
-        toast.success("Document removed successfully")
-      } else {
-        const error = await res.json().catch(() => ({ error: "Unknown error" }))
-        toast.error(error.error || "Failed to remove document")
-      }
+      await deleteDocument.mutateAsync(documentId)
     } catch (error) {
+      // Error already handled by the hook
       console.error("Failed to remove document:", error)
-      toast.error("Failed to remove document")
     }
   }
 
-  // Load user data and documents on mount
-  useEffect(() => {
-    const loadSettings = async () => {
-      try {
-        const session = await getCachedSession()
-        
-        if (!session) {
-          toast.error("You must be logged in")
-          return
-        }
-
-        // Parallel fetching for better performance
-        const [settingsRes, docsRes] = await Promise.all([
-          fetch("/api/settings", {
-            headers: {
-              "Authorization": `Bearer ${session.access_token}`,
-            },
-          }),
-          fetch("http://localhost:8000/documents", {
-            headers: {
-              "Authorization": `Bearer ${session.access_token}`,
-            },
-          })
-        ])
-        
-        if (settingsRes.ok) {
-          const data = await settingsRes.json()
-          reset(data)
-        } else {
-          const error = await settingsRes.json().catch(() => ({ error: "Unknown error" }))
-          console.error("Failed to load settings:", error)
-          toast.error(error.error || "Failed to load your settings")
-        }
-        
-        if (docsRes.ok) {
-          const docs = await docsRes.json()
-          setExistingDocuments(docs)
-        } else {
-          console.error("Failed to load documents")
-        }
-      } catch (error) {
-        console.error("Failed to load settings:", error)
-        toast.error("Failed to load your settings")
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadSettings()
-  }, [reset])
-
   const onSubmit = async (data: Partial<OnboardingFormValues>) => {
-    // Validate that all selected documents have files
-    const selectedDocs = data.documents || []
-    const missingFiles = selectedDocs.filter(docId => !documentFiles[docId] || documentFiles[docId].length === 0)
-    
-    if (missingFiles.length > 0) {
-      const missingNames = missingFiles
-        .map(docId => documentsList.find(d => d.id === docId)?.label)
-        .filter(Boolean)
-        .join(", ")
-      toast.error(`Please upload files for: ${missingNames}`)
-      return
-    }
-
-    setIsSaving(true)
     try {
-      const session = await getCachedSession()
-      
-      if (!session) {
-        toast.error("You must be logged in")
-        return
-      }
-
-      // Upload all document files to the backend
+      // Upload all document files first
       for (const [docType, files] of Object.entries(documentFiles)) {
         for (const file of files) {
-          const formData = new FormData()
-          formData.append('file', file)
-          formData.append('doc_type', docType)
-          
-          const uploadRes = await fetch("http://localhost:8000/documents", {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${session.access_token}`,
-            },
-            body: formData,
-          })
-          
-          if (!uploadRes.ok) {
-            const errorText = await uploadRes.text()
-            console.error("Upload error response:", uploadRes.status, errorText)
-            let errorMessage = "Upload failed"
-            try {
-              const errorJson = JSON.parse(errorText)
-              errorMessage = errorJson.detail || errorJson.error || errorJson.message || errorText
-            } catch {
-              errorMessage = errorText || `HTTP ${uploadRes.status}`
-            }
-            throw new Error(`Failed to upload ${file.name}: ${errorMessage}`)
-          }
-          
-          console.log(`Successfully uploaded: ${file.name}`)
+          await uploadDocument.mutateAsync({ file, docType })
         }
       }
 
       // Clear the document files after successful upload
       setDocumentFiles({})
       
-      // Reload documents to show the newly uploaded ones
-      const docsRes = await fetch("http://localhost:8000/documents", {
-        headers: {
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-      })
+      // Save the settings
+      await updateSettings.mutateAsync(data)
       
-      if (docsRes.ok) {
-        const docs = await docsRes.json()
-        setExistingDocuments(docs)
-      }
-
-      // Save the settings (without file data, just document type selections)
-      const res = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(data),
-      })
-
-      if (!res.ok) {
-        console.error("Response status:", res.status, res.statusText)
-        const responseText = await res.text()
-        console.error("Response body:", responseText)
-        
-        let errorData
-        try {
-          errorData = JSON.parse(responseText)
-        } catch {
-          errorData = { error: responseText || "Unknown error" }
-        }
-        
-        console.error("Settings save error:", errorData)
-        if (errorData.details) {
-          console.error("Validation details:", errorData.details)
-        }
-        throw new Error(errorData.error || "Failed to save settings")
-      }
-
-      toast.success("Settings saved successfully!")
-      reset(data) // Reset form state to mark as not dirty
+      // Reset form state to mark as not dirty
+      reset(data)
     } catch (error) {
+      // Errors already handled by the hooks
       console.error("Save error:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to save settings")
-    } finally {
-      setIsSaving(false)
     }
   }
 
-  if (isLoading) {
+  // Loading states
+  if (isLoading || docsLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="space-y-4 max-w-5xl w-full mx-auto px-4">
+          <Skeleton className="h-12 w-64" />
+          <Skeleton className="h-64 w-full" />
+          <Skeleton className="h-64 w-full" />
+        </div>
+      </div>
+    )
+  }
+
+  // Error state
+  if (settingsError) {
+    return (
+      <div className="flex h-screen items-center justify-center p-4">
+        <Alert variant="destructive" className="max-w-lg">
+          <AlertDescription>
+            Failed to load settings. Please try refreshing the page.
+          </AlertDescription>
+        </Alert>
       </div>
     )
   }
@@ -741,17 +614,17 @@ export default function SettingsPage() {
                       <div className="space-y-2">
                         {existingDocuments.map((doc) => (
                           <div
-                            key={doc.document_id}
+                            key={doc.documentId}
                             className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3"
                           >
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <FileText className="h-5 w-5 shrink-0 text-muted-foreground" />
                               <div className="flex-1 min-w-0">
                                 <p className="font-medium text-sm truncate">
-                                  {doc.doc_type.charAt(0).toUpperCase() + doc.doc_type.slice(1)} Document
+                                  {doc.docType?.charAt(0).toUpperCase() + doc.docType?.slice(1)} Document
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  Uploaded {new Date(doc.uploaded_at).toLocaleDateString()}
+                                  Uploaded {new Date(doc.createdAt || doc.uploadedAt).toLocaleDateString()}
                                 </p>
                               </div>
                             </div>
@@ -760,7 +633,7 @@ export default function SettingsPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleReviewFile(doc.storage_path)}
+                                onClick={() => handleReviewFile(doc.documentId)}
                               >
                                 <Eye className="h-4 w-4 mr-1" />
                                 Review
@@ -769,7 +642,7 @@ export default function SettingsPage() {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleRemoveExistingFile(doc.document_id)}
+                                onClick={() => handleRemoveExistingFile(doc.documentId)}
                               >
                                 <Trash2 className="h-4 w-4 mr-1" />
                                 Remove
@@ -879,8 +752,12 @@ export default function SettingsPage() {
             transition={{ delay: 0.3 }}
             className="mt-6 flex justify-end"
           >
-            <Button type="submit" disabled={!isDirty || isSaving} size="lg">
-              {isSaving ? (
+            <Button 
+              type="submit" 
+              disabled={!isDirty || updateSettings.isPending || uploadDocument.isPending} 
+              size="lg"
+            >
+              {(updateSettings.isPending || uploadDocument.isPending) ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Saving...

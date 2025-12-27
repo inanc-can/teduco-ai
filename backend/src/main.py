@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, EmailStr
-from typing import Optional
+from pydantic import EmailStr
+from typing import Optional, List
 from datetime import datetime
 import os
 from uuid import uuid4
 from .db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, get_user_profile, get_user_documents, delete_document, supabase
 from .core.config import get_settings
+from .core.models import CamelCaseModel
+from .core.schemas import UserProfileResponse, UserProfileUpdate, DocumentResponse, ChatResponse, MessageResponse
 
 app = FastAPI(title="Teduco API", version="0.1.0")
 
@@ -49,54 +51,131 @@ def get_signed_url(path: str, expires_sec: int = 60):
     )
     return res["signedURL"]
 
-@app.get("/profile")
+@app.get("/profile", response_model=UserProfileResponse)
 def get_profile(user_id: str = Depends(get_current_user)):
-    """Get user profile data."""
-    profile = get_user_profile(user_id)
-    return profile
+    """Get user profile data in camelCase format."""
+    raw_profile = get_user_profile(user_id)
+    
+    # Flatten the nested structure into a single dict
+    result = {}
+    
+    # Add basic user info
+    if raw_profile.get("user"):
+        user_data = raw_profile["user"]
+        result.update({
+            "first_name": user_data.get("first_name", ""),
+            "last_name": user_data.get("last_name", ""),
+            "phone": user_data.get("phone"),
+            "applicant_type": user_data.get("applicant_type"),
+            "current_city": user_data.get("current_city"),
+            "onboarding_completed": user_data.get("onboarding_completed", False),
+        })
+    
+    # Add education info
+    if raw_profile.get("education"):
+        edu_data = raw_profile["education"]
+        edu_type = edu_data.get("type")
+        
+        if edu_type == "high-school":
+            result.update({
+                "high_school_name": edu_data.get("high_school_name"),
+                "high_school_gpa": edu_data.get("gpa"),
+                "high_school_gpa_scale": edu_data.get("gpa_scale"),
+                "high_school_grad_year": edu_data.get("grad_year"),
+                "yks_placed": edu_data.get("yks_placed"),
+            })
+        elif edu_type == "university":
+            result.update({
+                "university_name": edu_data.get("university_name"),
+                "university_program": edu_data.get("university_program"),
+                "university_gpa": edu_data.get("gpa"),
+                "credits_completed": edu_data.get("credits_completed"),
+                "expected_graduation": edu_data.get("expected_graduation"),
+                "study_mode": edu_data.get("study_mode"),
+                "research_focus": edu_data.get("research_focus"),
+                "portfolio_link": edu_data.get("portfolio_link"),
+            })
+    
+    # Add preferences
+    if raw_profile.get("preferences"):
+        pref_data = raw_profile["preferences"]
+        result.update({
+            "desired_countries": pref_data.get("desired_countries", []),
+            "desired_field": pref_data.get("desired_fields", []),  # Map plural to singular
+            "target_program": pref_data.get("target_programs", []),  # Map plural to singular
+            "preferred_intake": pref_data.get("preferred_intake"),
+            "preferred_support": pref_data.get("preferred_support"),
+            "additional_notes": pref_data.get("additional_notes"),
+        })
+    
+    return UserProfileResponse(**result)
 
 @app.put("/profile")
-def update_profile(payload: dict, user_id: str = Depends(get_current_user)):
-    """Update user profile (same as onboarding)."""
-    # Update user profile
-    upsert_user(
-        user_id,
-        payload["firstName"],
-        payload["lastName"],
-        phone=payload.get("phone"),
-        applicant_type=payload.get("applicantType"),
-        current_city=payload.get("currentCity")
-    )
+def update_profile(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
+    """Update user profile. Pydantic automatically converts camelCase to snake_case."""
+    # Convert to dict with snake_case keys (Pydantic does this automatically)
+    data = payload.model_dump(exclude_none=True)
+    
+    # Update user profile if basic fields are present
+    if any(k in data for k in ["first_name", "last_name", "phone", "applicant_type", "current_city"]):
+        upsert_user(
+            user_id,
+            data.get("first_name"),
+            data.get("last_name"),
+            phone=data.get("phone"),
+            applicant_type=data.get("applicant_type"),
+            current_city=data.get("current_city")
+        )
     
     # Save education info based on applicant type
-    applicant_type = payload.get("applicantType")
+    applicant_type = data.get("applicant_type")
     if applicant_type == "university":
-        save_university_edu(user_id, payload)
+        save_university_edu(user_id, data)
     elif applicant_type == "high-school":
-        save_high_school_edu(user_id, payload)
+        save_high_school_edu(user_id, data)
     
-    # Save onboarding preferences
-    save_onboarding_preferences(user_id, payload)
+    # Save onboarding preferences if any are present
+    pref_fields = ["desired_countries", "desired_field", "target_program", "preferred_intake", "preferred_support", "additional_notes"]
+    if any(k in data for k in pref_fields):
+        save_onboarding_preferences(user_id, data)
     
     return {"message": "ok", "user_id": user_id}
 
+# Alias for settings (same as profile)
+@app.get("/settings", response_model=UserProfileResponse)
+def get_settings(user_id: str = Depends(get_current_user)):
+    """Get user settings (alias for profile)."""
+    return get_profile(user_id)
+
+@app.patch("/settings")
+def update_settings(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
+    """Update user settings (alias for profile)."""
+    return update_profile(payload, user_id)
+
+@app.put("/settings")
+def update_settings_put(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
+    """Update user settings via PUT (alias for profile)."""
+    return update_profile(payload, user_id)
+
 @app.post("/onboarding")
-def onboarding(payload: dict, user_id: str = Depends(get_current_user)):
+def onboarding(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
     """Onboarding endpoint (calls update_profile)."""
     return update_profile(payload, user_id)
 
 
 @app.post("/onboarding/profile")
-def onboarding_profile(payload: dict, user_id: str = Depends(get_current_user)):
+def onboarding_profile(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
+    """Legacy onboarding profile endpoint."""
+    data = payload.model_dump(exclude_none=True)
     upsert_user(
         user_id,
-        payload["firstName"],
-        payload["lastName"],
-        phone=payload.get("phone"),
-        applicant_type=payload.get("applicantType"),
-        current_city=payload.get("currentCity")
+        data.get("first_name"),
+        data.get("last_name"),
+        phone=data.get("phone"),
+        applicant_type=data.get("applicant_type"),
+        current_city=data.get("current_city")
     )
-    save_university_edu(user_id, payload)  # silently ignores hs fields
+    save_university_edu(user_id, data)  # silently ignores hs fields
     return {"status": "ok"}
 
 @app.post("/documents")
@@ -117,32 +196,54 @@ def add_document(
             detail=f"Failed to upload document: {str(e)}"
         )
 
-@app.get("/documents")
+@app.get("/documents", response_model=List[DocumentResponse])
 def list_documents(user_id: str = Depends(get_current_user)):
+    """List all documents for the user in camelCase format."""
     result = get_user_documents(user_id)
-    return result.data
+    return [DocumentResponse(**doc) for doc in result.data]
+
+@app.get("/documents/{document_id}/signed-url")
+def get_document_signed_url(
+    document_id: str, 
+    user_id: str = Depends(get_current_user),
+    expires_sec: int = 3600  # 1 hour default
+):
+    """Generate a signed URL for viewing a document."""
+    # Verify the document belongs to the user
+    result = get_user_documents(user_id)
+    document = next((doc for doc in result.data if doc.get("document_id") == document_id), None)
+    
+    if not document:
+        raise HTTPException(404, "Document not found")
+    
+    storage_path = document.get("storage_path")
+    if not storage_path:
+        raise HTTPException(400, "Document has no storage path")
+    
+    signed_url = get_signed_url(storage_path, expires_sec)
+    return {"signedUrl": signed_url}
 
 @app.delete("/documents/{document_id}")
 def remove_document(document_id: str, user_id: str = Depends(get_current_user)):
     delete_document(document_id, user_id)
     return {"status": "deleted"}
 
-class LoginIn(BaseModel):
+class LoginIn(CamelCaseModel):
     email: EmailStr
     password: str
 
 # Chat models
-class ChatCreate(BaseModel):
+class ChatCreate(CamelCaseModel):
     title: Optional[str] = "New Chat"
     emoji: Optional[str] = "💬"
     initial_message: Optional[str] = None
 
-class ChatUpdate(BaseModel):
+class ChatUpdate(CamelCaseModel):
     title: Optional[str] = None
     emoji: Optional[str] = None
     is_pinned: Optional[bool] = None
 
-class MessageCreate(BaseModel):
+class MessageCreate(CamelCaseModel):
     content: str
     metadata: Optional[dict] = None
 
@@ -165,9 +266,9 @@ def login(credentials: LoginIn):
 
 # ============= CHAT ENDPOINTS =============
 
-@app.get("/chats")
+@app.get("/chats", response_model=List[ChatResponse])
 def list_chats(user_id: str = Depends(get_current_user)):
-    """List all chats for the authenticated user."""
+    """List all chats for the authenticated user in camelCase format."""
     try:
         response = supabase.table("chats")\
             .select("*")\
@@ -175,7 +276,16 @@ def list_chats(user_id: str = Depends(get_current_user)):
             .order("last_message_at", desc=True)\
             .execute()
         
-        return response.data
+        # Convert to camelCase using Pydantic models
+        return [ChatResponse(
+            chat_id=chat["id"],
+            user_id=chat["user_id"],
+            title=chat["title"],
+            emoji=chat.get("emoji"),
+            is_pinned=chat.get("is_pinned", False),
+            created_at=chat["created_at"],
+            last_message_at=chat.get("last_message_at")
+        ) for chat in response.data]
     except Exception as e:
         raise HTTPException(500, f"Failed to fetch chats: {str(e)}")
 
