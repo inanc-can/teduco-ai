@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
+import { useAsyncFormSubmit } from "@/hooks/use-async-form-submit"
 
 export function SignupForm({
   className,
@@ -25,28 +26,20 @@ export function SignupForm({
     password: "",
     confirmPassword: "",
   })
-  const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
+  const { isLoading, handleSubmit, setIsLoading } = useAsyncFormSubmit({
+    onSubmit: async () => {
+      // Validate passwords match
+      if (formData.password !== formData.confirmPassword) {
+        throw new Error("Passwords do not match")
+      }
 
-    // Validate passwords match
-    if (formData.password !== formData.confirmPassword) {
-      toast.error("Passwords do not match")
-      setIsLoading(false)
-      return
-    }
+      // Validate password length
+      if (formData.password.length < 8) {
+        throw new Error("Password must be at least 8 characters long")
+      }
 
-    // Validate password length
-    if (formData.password.length < 8) {
-      toast.error("Password must be at least 8 characters long")
-      setIsLoading(false)
-      return
-    }
-
-    try {
       // 1. Create auth user
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: formData.email,
@@ -59,13 +52,11 @@ export function SignupForm({
       })
 
       if (authError) {
-        toast.error(authError.message)
-        return
+        throw new Error(authError.message)
       }
 
       if (!authData.user) {
-        toast.error("Failed to create account. Please try again.")
-        return
+        throw new Error("Failed to create account. Please try again.")
       }
 
       // 2. Create user profile in users table
@@ -83,21 +74,16 @@ export function SignupForm({
 
       if (profileError) {
         console.error("Profile creation error:", profileError)
-        toast.error("Account created but profile setup failed. Please contact support.")
-        return
+        throw new Error("Account created but profile setup failed. Please contact support.")
       }
 
       toast.success("Account created successfully! Let's set up your profile.")
       // Refresh to trigger middleware redirect
       router.push("/onboarding")
       router.refresh()
-    } catch (error) {
-      toast.error("An unexpected error occurred")
-      console.error(error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    },
+    errorMessage: "Signup failed. Please try again."
+  })
 
   return (
     <form className={cn("flex flex-col gap-6", className)} onSubmit={handleSubmit} {...props}>
