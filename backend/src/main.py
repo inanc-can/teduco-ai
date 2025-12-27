@@ -51,6 +51,31 @@ def get_signed_url(path: str, expires_sec: int = 60):
     )
     return res["signedURL"]
 
+
+# Helper function to verify chat ownership
+def verify_chat_ownership(chat_id: str, user_id: str) -> None:
+    """Verify that a chat belongs to the specified user.
+    
+    Args:
+        chat_id: The ID of the chat to verify
+        user_id: The ID of the user who should own the chat
+    
+    Returns:
+        None if verification succeeds
+    
+    Raises:
+        HTTPException: 404 if chat not found or doesn't belong to user
+    """
+    response = supabase.table("chats")\
+        .select("id")\
+        .eq("id", chat_id)\
+        .eq("user_id", user_id)\
+        .single()\
+        .execute()
+    
+    if not response.data:
+        raise HTTPException(404, "Chat not found")
+
 @app.get("/profile", response_model=UserProfileResponse)
 def get_profile(user_id: str = Depends(get_current_user)):
     """Get user profile data in camelCase format."""
@@ -404,16 +429,8 @@ def get_messages(
 ):
     """Get messages for a specific chat."""
     try:
-        # First verify the chat belongs to the user
-        chat_response = supabase.table("chats")\
-            .select("id")\
-            .eq("id", chat_id)\
-            .eq("user_id", user_id)\
-            .single()\
-            .execute()
-        
-        if not chat_response.data:
-            raise HTTPException(404, "Chat not found")
+        # Verify the chat belongs to the user
+        verify_chat_ownership(chat_id, user_id)
         
         # Fetch messages
         response = supabase.table("messages")\
@@ -440,15 +457,14 @@ def send_message(
     """Send a message in a chat and get AI response."""
     try:
         # Verify chat belongs to user
+        verify_chat_ownership(chat_id, user_id)
+        
+        # Get chat data for potential title update
         chat_response = supabase.table("chats")\
             .select("*")\
             .eq("id", chat_id)\
-            .eq("user_id", user_id)\
             .single()\
             .execute()
-        
-        if not chat_response.data:
-            raise HTTPException(404, "Chat not found")
         
         # Save user message
         user_message_data = {

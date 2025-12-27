@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
+import { useAsyncFormSubmit } from "@/hooks/use-async-form-submit"
 
 export function LoginForm({
   className,
@@ -22,27 +23,21 @@ export function LoginForm({
 }: React.ComponentProps<"form">) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-
-    try {
+  const { isLoading, handleSubmit } = useAsyncFormSubmit({
+    onSubmit: async () => {
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
 
       if (authError) {
-        toast.error(authError.message || "Invalid email or password")
-        return
+        throw new Error(authError.message || "Invalid email or password")
       }
 
       if (!authData.session) {
-        toast.error("Could not create session. Please try again.")
-        return
+        throw new Error("Could not create session. Please try again.")
       }
 
       // Check if user needs onboarding
@@ -67,14 +62,9 @@ export function LoginForm({
         router.push('/onboarding')
         toast.success("Please complete your profile")
       }
-
-    } catch (error) {
-      toast.error("An unexpected error occurred. Please try again.")
-      console.error('Login error:', error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+    },
+    errorMessage: "Login failed. Please try again."
+  })
 
   return (
     <form className={cn("flex flex-col gap-6", className)} onSubmit={handleSubmit} {...props}>
