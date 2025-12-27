@@ -8,7 +8,7 @@ from uuid import uuid4
 from .db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, get_user_profile, get_user_documents, delete_document, supabase
 from .core.config import get_settings
 from .core.models import CamelCaseModel
-from .core.schemas import UserProfileResponse, UserProfileUpdate, DocumentResponse, ChatResponse, MessageResponse
+from .core.schemas import UserProfileResponse, UserProfileUpdate, DocumentResponse, ChatResponse
 
 app = FastAPI(title="Teduco API", version="0.1.0")
 
