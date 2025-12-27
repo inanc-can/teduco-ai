@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, Header, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import EmailStr
@@ -409,8 +409,8 @@ def delete_chat(chat_id: str, user_id: str = Depends(get_current_user)):
 @app.get("/chats/{chat_id}/messages")
 def get_messages(
     chat_id: str, 
-    limit: int = 50,  # Reduced default from 100 to 50 for better performance
-    offset: int = 0,
+    limit: int = Query(default=50, ge=1, le=100),  # Validate: between 1-100
+    offset: int = Query(default=0, ge=0),          # Validate: non-negative
     user_id: str = Depends(get_current_user)
 ):
     """
@@ -418,17 +418,14 @@ def get_messages(
     
     Args:
         chat_id: The chat identifier
-        limit: Maximum number of messages to return (default: 50, max: 100)
-        offset: Number of messages to skip (for pagination)
+        limit: Maximum number of messages to return (default: 50, min: 1, max: 100)
+        offset: Number of messages to skip for pagination (default: 0, min: 0)
         user_id: Authenticated user ID
     
     Returns:
         List of messages with pagination applied
     """
     try:
-        # Enforce maximum limit to prevent performance issues
-        limit = min(limit, 100)
-        
         # First verify the chat belongs to the user
         chat_response = supabase.table("chats")\
             .select("id")\
@@ -440,7 +437,7 @@ def get_messages(
         if not chat_response.data:
             raise HTTPException(404, "Chat not found")
         
-        # Fetch messages with pagination
+        # Fetch messages with pagination (limit is already validated by Query)
         response = supabase.table("messages")\
             .select("*")\
             .eq("chat_id", chat_id)\
