@@ -2,7 +2,6 @@
 Base Pydantic models with automatic camelCase conversion.
 """
 from pydantic import BaseModel, ConfigDict
-from typing import Any
 
 def to_camel(string: str) -> str:
     """Convert snake_case to camelCase."""
