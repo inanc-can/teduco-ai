@@ -2,7 +2,7 @@ import { config } from './config'
 
 export type WebSocketMessage = {
   type: 'message' | 'error' | 'status' | 'stream_start' | 'stream_chunk' | 'stream_end'
-  data?: any
+  data?: unknown
   error?: string
   messageId?: string
   chatId?: string
@@ -65,7 +65,7 @@ class WebSocketClient {
         }
       }
 
-      this.ws.onerror = (error) => {
+      this.ws.onerror = () => {
         // WebSocket endpoint not implemented on backend yet
         // Silently handle error to avoid console spam
         this.setStatus('error')

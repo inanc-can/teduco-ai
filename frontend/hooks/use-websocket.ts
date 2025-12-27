@@ -159,7 +159,6 @@ export function useChatStream(chatId: string | undefined) {
     ...websocket,
     streamingMessage,
     isStreaming,
-    streamingMessageId: streamingMessageId.current,
     sendChatMessage,
     clearStreamingMessage: () => setStreamingMessage(''),
   }

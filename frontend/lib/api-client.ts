@@ -7,6 +7,16 @@ import { OnboardingFormValues } from "./schemas/onboarding"
 import { supabase, getCachedSession } from './supabase'
 import { config } from './config'
 import { logger, createTimer } from './logger'
+import type { 
+  Chat, 
+  Message, 
+  Document, 
+  Settings, 
+  SettingsUpdate, 
+  UserProfile, 
+  UserProfileUpdate,
+  UnknownRecord 
+} from './types/api'
 
 export class ApiError extends Error {
   constructor(
@@ -132,7 +142,6 @@ class ApiClient {
       if (!response.ok) {
         let errorMessage = 'An error occurred'
         let errorCode = 'UNKNOWN_ERROR'
-        let errorDetails: any = null
 
         try {
           const errorData = await response.json()
@@ -141,9 +150,8 @@ class ApiClient {
           if (Array.isArray(errorData.detail)) {
             // FastAPI validation errors (array of objects)
             errorMessage = errorData.detail
-              .map((err: any) => `${err.loc?.join('.') || 'field'}: ${err.msg}`)
+              .map((err: { loc?: string[]; msg: string }) => `${err.loc?.join('.') || 'field'}: ${err.msg}`)
               .join('; ')
-            errorDetails = errorData.detail
           } else if (typeof errorData.detail === 'string') {
             errorMessage = errorData.detail
           } else if (errorData.message) {
@@ -153,7 +161,7 @@ class ApiClient {
           }
           
           errorCode = errorData.code || errorCode
-        } catch (parseError) {
+        } catch {
           // Failed to parse error response
           errorMessage = response.statusText || errorMessage
         }
@@ -313,19 +321,19 @@ class ApiClient {
   // ======================
 
   async getChats() {
-    return this.get<any[]>('/chats')
+    return this.get<Chat[]>('/chats')
   }
 
   async getChat(chatId: string) {
-    return this.get<any>(`/chats/${chatId}`)
+    return this.get<Chat>(`/chats/${chatId}`)
   }
 
   async createChat(data: { title?: string }) {
-    return this.post<any>('/chats', data)
+    return this.post<Chat>('/chats', data)
   }
 
   async updateChat(chatId: string, data: { title?: string; emoji?: string; is_pinned?: boolean }) {
-    return this.put<any>(`/chats/${chatId}`, data)
+    return this.put<Chat>(`/chats/${chatId}`, data)
   }
 
   async deleteChat(chatId: string) {
@@ -333,7 +341,7 @@ class ApiClient {
   }
 
   async getMessages(chatId: string) {
-    return this.get<any[]>(`/chats/${chatId}/messages`)
+    return this.get<Message[]>(`/chats/${chatId}/messages`)
   }
 
   async sendMessage(data: { chatId: string; message: string; files?: File[] }) {
@@ -342,13 +350,13 @@ class ApiClient {
       formData.append('content', data.message)
       data.files.forEach((file) => formData.append('files', file))
       
-      return this.postFormData<any>(
+      return this.postFormData<Message>(
         `/chats/${data.chatId}/messages`,
         formData
       )
     }
 
-    return this.post<any>(`/chats/${data.chatId}/messages`, {
+    return this.post<Message>(`/chats/${data.chatId}/messages`, {
       content: data.message,
     })
   }
@@ -379,7 +387,7 @@ class ApiClient {
   }
 
   async getDocuments() {
-    return this.get<any[]>('/documents')
+    return this.get<Document[]>('/documents')
   }
 
   async uploadDocument(file: File, docType?: string) {
@@ -388,7 +396,7 @@ class ApiClient {
     // Map frontend doc type to database enum value
     formData.append('doc_type', this.mapDocType(docType))
     
-    return this.postFormData<any>('/documents', formData)
+    return this.postFormData<Document>('/documents', formData)
   }
 
   async deleteDocument(documentId: string) {
@@ -404,11 +412,11 @@ class ApiClient {
   // ======================
 
   async getSettings() {
-    return this.get<any>('/settings')
+    return this.get<Settings>('/settings')
   }
 
-  async updateSettings(data: any) {
-    return this.patch<any>('/settings', data)
+  async updateSettings(data: SettingsUpdate) {
+    return this.patch<Settings>('/settings', data)
   }
 
   // ======================
@@ -416,35 +424,35 @@ class ApiClient {
   // ======================
 
   async getUserProfile() {
-    return this.get<any>('/profile')
+    return this.get<UserProfile>('/profile')
   }
 
-  async updateUserProfile(data: any) {
-    return this.patch<any>('/profile', data)
+  async updateUserProfile(data: UserProfileUpdate) {
+    return this.patch<UserProfile>('/profile', data)
   }
 
   async getOnboardingStatus() {
-    return this.get<any>('/onboarding')
+    return this.get<{ onboarding_completed: boolean }>('/onboarding')
   }
 
   async completeOnboarding(data: OnboardingFormValues) {
-    return this.post<any>('/onboarding', data)
+    return this.post<UserProfile>('/onboarding', data)
   }
 
   // ======================
   // Legacy API Methods (for backwards compatibility)
   // ======================
 
-  async createUser(data: any) {
-    return this.post<any>('/users', data)
+  async createUser(data: UnknownRecord) {
+    return this.post<UnknownRecord>('/users', data)
   }
 
   async deleteUser(userId: number) {
     return this.delete(`/users/${userId}`)
   }
 
-  async createUniversity(data: any) {
-    return this.post<any>('/universities', data)
+  async createUniversity(data: UnknownRecord) {
+    return this.post<UnknownRecord>('/universities', data)
   }
 
   async linkUniversityToUser(userId: number, uniId: number) {
@@ -452,7 +460,7 @@ class ApiClient {
   }
 
   async submitOnboarding(data: OnboardingFormValues) {
-    return this.post<any>('/onboarding', data)
+    return this.post<UserProfile>('/onboarding', data)
   }
 }
 
@@ -461,11 +469,11 @@ export const apiClient = new ApiClient()
 // Legacy API exports for backwards compatibility
 export const api = {
   users: {
-    create: (data: any) => apiClient.createUser(data),
+    create: (data: UnknownRecord) => apiClient.createUser(data),
     delete: (userId: number) => apiClient.deleteUser(userId),
   },
   universities: {
-    create: (data: any) => apiClient.createUniversity(data),
+    create: (data: UnknownRecord) => apiClient.createUniversity(data),
     linkToUser: (userId: number, uniId: number) => 
       apiClient.linkUniversityToUser(userId, uniId),
   },

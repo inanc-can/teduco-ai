@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { toast } from "sonner"
 
@@ -60,12 +60,21 @@ export default function DashboardPage() {
   // Extract user name from profile
   const userName = userProfile?.firstName || null
 
+  // Transform API messages to display format (filter out system messages)
+  const transformedMessages: Message[] = messages
+    .filter(msg => msg.role !== 'system')
+    .map(msg => ({
+      id: msg.messageId,
+      role: msg.role as 'user' | 'assistant',
+      content: msg.content,
+    }))
+
   // Combine database messages with streaming message
   const displayMessages: Message[] = [
-    ...messages,
+    ...transformedMessages,
     ...(isStreaming && streamingMessage
       ? [{
-          id: `streaming-${Date.now()}`,
+          id: 'streaming-message',
           role: 'assistant' as const,
           content: streamingMessage,
           pending: true,

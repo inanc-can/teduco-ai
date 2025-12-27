@@ -88,7 +88,7 @@ function categorizeApiError(error: ApiError): ErrorCategory {
  * Get user-friendly error messages
  */
 function getUserFriendlyMessage(error: ApiError): string {
-  const { statusCode, code, message } = error
+  const { statusCode, message } = error
 
   // Use custom message if available
   if (message && !message.includes('HTTP')) {
@@ -151,7 +151,7 @@ function canRetryError(error: ApiError): boolean {
 /**
  * Log errors for debugging and monitoring
  */
-export function logError(error: unknown, context?: Record<string, any>) {
+export function logError(error: unknown, context?: Record<string, unknown>) {
   const errorInfo = handleError(error)
 
   // In development, log to console

@@ -58,16 +58,6 @@ const fadeInUp = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.3 } },
 }
 
-type DocumentType = {
-  documentId: string
-  userId: string
-  docType: string
-  storagePath: string
-  mimeType: string
-  uploadedAt: string
-  createdAt?: string
-}
-
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("personal")
   const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({})
@@ -93,7 +83,17 @@ export default function SettingsPage() {
   // Load settings data when available
   useEffect(() => {
     if (settings) {
-      reset(settings)
+      // Convert numeric and boolean fields to strings for form compatibility
+      // Also map API field names (camelCase) to form field names (some with different casing)
+      reset({
+        ...settings,
+        highSchoolGradYear: settings.highSchoolGradYear?.toString(),
+        highSchoolGPA: settings.highSchoolGpa?.toString(),
+        highSchoolGPAScale: settings.highSchoolGpaScale?.toString(),
+        universityGPA: settings.universityGpa?.toString(),
+        creditsCompleted: settings.creditsCompleted?.toString(),
+        yksPlaced: settings.yksPlaced?.toString(),
+      })
     }
   }, [settings, reset])
 
@@ -153,8 +153,19 @@ export default function SettingsPage() {
       // Clear the document files after successful upload
       setDocumentFiles({})
       
+      // Convert string fields back to their proper types for the API
+      const apiData = {
+        ...data,
+        highSchoolGradYear: data.highSchoolGradYear ? parseInt(data.highSchoolGradYear) : undefined,
+        highSchoolGPA: data.highSchoolGPA ? parseFloat(data.highSchoolGPA) : undefined,
+        highSchoolGPAScale: data.highSchoolGPAScale ? parseFloat(data.highSchoolGPAScale) : undefined,
+        universityGPA: data.universityGPA ? parseFloat(data.universityGPA) : undefined,
+        creditsCompleted: data.creditsCompleted ? parseInt(data.creditsCompleted) : undefined,
+        yksPlaced: data.yksPlaced ? data.yksPlaced === 'true' : undefined,
+      }
+      
       // Save the settings
-      await updateSettings.mutateAsync(data)
+      await updateSettings.mutateAsync(apiData)
       
       // Reset form state to mark as not dirty
       reset(data)

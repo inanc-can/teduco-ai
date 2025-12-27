@@ -42,7 +42,7 @@ export function useUploadDocument() {
       }
 
       // Validate file type
-      if (!config.upload.allowedFileTypes.includes(file.type as any)) {
+      if (!(config.upload.allowedFileTypes as readonly string[]).includes(file.type)) {
         throw new Error(
           `File type ${file.type} is not supported. Allowed types: PDF, DOC, DOCX, TXT, JPG, PNG`
         )

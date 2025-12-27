@@ -31,7 +31,7 @@ export default function OnboardingPage() {
 
   // Redirect if already completed onboarding
   useEffect(() => {
-    if (onboardingStatus?.completed) {
+    if (onboardingStatus?.onboarding_completed) {
       router.push('/dashboard');
     }
   }, [onboardingStatus, router]);

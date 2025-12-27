@@ -33,15 +33,6 @@ import {
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 
-interface Chat {
-  chatId: string
-  title: string
-  emoji: string
-  isPinned: boolean
-  lastMessageAt?: string
-  createdAt: string
-}
-
 export function NavChats() {
   const { isMobile } = useSidebar()
   const router = useRouter()

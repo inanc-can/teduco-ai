@@ -82,7 +82,7 @@ async function serverRequest<T>(
       const errorData = await response.json()
       if (Array.isArray(errorData.detail)) {
         errorMessage = errorData.detail
-          .map((err: any) => `${err.loc?.join('.') || 'field'}: ${err.msg}`)
+          .map((err: { loc?: string[]; msg: string }) => `${err.loc?.join('.') || 'field'}: ${err.msg}`)
           .join('; ')
       } else if (typeof errorData.detail === 'string') {
         errorMessage = errorData.detail

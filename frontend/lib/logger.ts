@@ -181,15 +181,16 @@ class Logger {
         }
         
         // Build error details object
-        const errorDetails: any = {
+        const errorDetails: Record<string, unknown> = {
           name: error.name,
           message: error.message,
         }
-        if ((error as any).statusCode !== undefined) {
-          errorDetails.statusCode = (error as any).statusCode
+        const errorWithCode = error as { statusCode?: number; code?: string }
+        if (errorWithCode.statusCode !== undefined) {
+          errorDetails.statusCode = errorWithCode.statusCode
         }
-        if ((error as any).code !== undefined) {
-          errorDetails.code = (error as any).code
+        if (errorWithCode.code !== undefined) {
+          errorDetails.code = errorWithCode.code
         }
         
         console[level]('Error:', errorDetails)
@@ -234,7 +235,7 @@ export class PerformanceTimer {
     logger.debug(`⏱️ ${label} started`)
   }
 
-  end(context?: Record<string, any>): number {
+  end(context?: Record<string, unknown>): number {
     const duration = Math.round(performance.now() - this.startTime)
     logger.debug(`⏱️ ${this.label} completed in ${duration}ms`, context)
     return duration

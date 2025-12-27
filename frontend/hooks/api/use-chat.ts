@@ -105,10 +105,13 @@ export function useUpdateChat() {
       const previousChat = queryClient.getQueryData(chatKeys.detail(chatId))
 
       // Optimistically update
-      queryClient.setQueryData(chatKeys.list(), (old: any[] = []) =>
-        old.map((chat) => (chat.id === chatId ? { ...chat, ...updates } : chat))
+      queryClient.setQueryData(chatKeys.list(), (old: unknown[] = []) =>
+        old.map((chat: unknown) => {
+          const c = chat as { id: string }
+          return c.id === chatId ? { ...c, ...updates } : chat
+        })
       )
-      queryClient.setQueryData(chatKeys.detail(chatId), (old: any) =>
+      queryClient.setQueryData(chatKeys.detail(chatId), (old: unknown) =>
         old ? { ...old, ...updates } : old
       )
 
@@ -163,7 +166,7 @@ export function useSendMessage() {
 
       queryClient.setQueryData(
         chatKeys.messages(variables.chatId),
-        (old: any[] = []) => [...old, optimisticMessage]
+        (old: unknown[] = []) => [...old, optimisticMessage]
       )
 
       // Return a context object with the snapshotted value
