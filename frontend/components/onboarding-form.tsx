@@ -118,7 +118,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({});
   
   // React Query mutation
-  const completeOnboarding = useCompleteOnboarding()
+  const completeOnboarding = useCompleteOnboarding();
   
   const {
     control,
