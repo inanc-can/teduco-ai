@@ -5,22 +5,22 @@ from typing import Optional, List
 from datetime import datetime
 import os
 from uuid import uuid4
-from .db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, get_user_profile, get_user_documents, delete_document, supabase
-from .core.config import get_settings
-from .core.models import CamelCaseModel
-from .core.schemas import UserProfileResponse, UserProfileUpdate, DocumentResponse, ChatResponse
 
 import sys
 from pathlib import Path
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 
-
-# Add backend directory to path for RAG imports
+# Add src directory to path for proper imports
 sys.path.insert(0, str(Path(__file__).parent))
-sys.path.insert(0, str(Path(__file__).parent / "rag"))
-# Import RAG chatbot components
-from rag.models import ChatRequest, ChatResponse
+
+from db.lib.core import upsert_user, save_university_edu, save_high_school_edu, save_onboarding_preferences, upload_document, get_user_profile, get_user_documents, delete_document, supabase
+from core.config import get_settings
+from core.models import CamelCaseModel
+from core.schemas import UserProfileResponse, UserProfileUpdate, DocumentResponse, ChatResponse, MessageResponse
+
+# Import RAG chatbot components (use alias to avoid name conflict)
+from rag.models import ChatRequest, ChatResponse as RagChatResponse
 from rag.storage import ChatHistoryStorage
 from rag.chatbot.pipeline import initialize_rag_pipeline
 
@@ -66,6 +66,11 @@ def get_signed_url(path: str, expires_sec: int = 60):
         .create_signed_url(path, expires_sec)
     )
     return res["signedURL"]
+
+@app.get("/health")
+def health_check():
+    """Health check endpoint for debugging."""
+    return {"status": "healthy", "rag_ready": rag_pipeline is not None}
 
 @app.get("/profile", response_model=UserProfileResponse)
 def get_profile(user_id: str = Depends(get_current_user)):
@@ -143,11 +148,14 @@ def update_profile(payload: UserProfileUpdate, user_id: str = Depends(get_curren
             current_city=data.get("current_city")
         )
     
-    # Save education info based on applicant type
+    # Save education info based on applicant type (only if relevant fields are present)
     applicant_type = data.get("applicant_type")
-    if applicant_type == "university":
+    university_fields = ["university_name", "university_program", "university_gpa", "credits_completed", "expected_graduation", "study_mode", "research_focus", "portfolio_link"]
+    high_school_fields = ["high_school_name", "high_school_gpa", "high_school_gpa_scale", "high_school_grad_year", "yks_placed"]
+    
+    if applicant_type == "university" and any(k in data for k in university_fields):
         save_university_edu(user_id, data)
-    elif applicant_type == "high-school":
+    elif applicant_type == "high-school" and any(k in data for k in high_school_fields):
         save_high_school_edu(user_id, data)
     
     # Save onboarding preferences if any are present
@@ -293,20 +301,30 @@ def list_chats(user_id: str = Depends(get_current_user)):
             .execute()
         
         # Convert to camelCase using Pydantic models
-        return [ChatResponse(
-            chat_id=chat["id"],
-            user_id=chat["user_id"],
-            title=chat["title"],
-            emoji=chat.get("emoji"),
-            is_pinned=chat.get("is_pinned", False),
-            created_at=chat["created_at"],
-            last_message_at=chat.get("last_message_at")
-        ) for chat in response.data]
+        result = []
+        for chat in response.data:
+            try:
+                result.append(ChatResponse(
+                    chat_id=chat["id"],
+                    user_id=chat["user_id"],
+                    title=chat["title"],
+                    emoji=chat.get("emoji"),
+                    is_pinned=chat.get("is_pinned", False),
+                    created_at=chat["created_at"],
+                    last_message_at=chat.get("last_message_at")
+                ))
+            except Exception as chat_err:
+                print(f"Error mapping chat {chat.get('id')}: {chat_err}")
+                print(f"Chat data: {chat}")
+                raise
+        return result
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(500, f"Failed to fetch chats: {str(e)}")
 
 
-@app.post("/chats")
+@app.post("/chats", response_model=ChatResponse)
 def create_chat(chat: ChatCreate, user_id: str = Depends(get_current_user)):
     """Create a new chat."""
     try:
@@ -333,7 +351,16 @@ def create_chat(chat: ChatCreate, user_id: str = Depends(get_current_user)):
             }
             supabase.table("messages").insert(message_data).execute()
         
-        return created_chat
+        # Return properly formatted camelCase response
+        return ChatResponse(
+            chat_id=created_chat["id"],
+            user_id=created_chat["user_id"],
+            title=created_chat["title"],
+            emoji=created_chat.get("emoji"),
+            is_pinned=created_chat.get("is_pinned", False),
+            created_at=created_chat["created_at"],
+            last_message_at=created_chat.get("last_message_at")
+        )
     except Exception as e:
         raise HTTPException(500, f"Failed to create chat: {str(e)}")
 
@@ -482,9 +509,15 @@ def send_message(
         if not user_msg_response.data:
             raise HTTPException(500, "Failed to save message")
         
-        # TODO: Call AI service here to generate response
-        # For now, return a placeholder response
-        ai_response_content = "This is a placeholder AI response. Integration with AI service coming soon!"
+        # Call AI service to generate response
+        if rag_pipeline:
+            try:
+                ai_response_content = rag_pipeline.answer_question(message.content)
+            except Exception as e:
+                print(f"Error generating AI response: {e}")
+                ai_response_content = "I apologize, but I encountered an error while processing your request."
+        else:
+            ai_response_content = "The AI service is currently unavailable. Please try again later."
         
         # Save AI response
         ai_message_data = {
@@ -553,29 +586,10 @@ except Exception as e:
 storage = ChatHistoryStorage(storage_dir="chats")
 
 # ============================================================================
-# STATIC FILES - Serve the frontend
-# ============================================================================
-FRONTEND_PATH = Path(__file__).parent  # Points to /app/src in container
-CHATBOT_HTML = FRONTEND_PATH / "chatbot.html"
-if CHATBOT_HTML.exists():
-    print("[STARTUP] ✓ Chatbot frontend found at chatbot.html")
-
-# ============================================================================
 # RAG CHATBOT ENDPOINTS
 # ============================================================================
 
-@app.get("/chat")
-async def chat_frontend():
-    """
-    Chat endpoint - serves the standalone chatbot frontend (no credentials required).
-    """
-    if CHATBOT_HTML.exists():
-        return FileResponse(str(CHATBOT_HTML))
-    else:
-        raise HTTPException(status_code=404, detail="Chatbot frontend not found")
-
-
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/chat", response_model=RagChatResponse)
 async def chat(request: ChatRequest):
     """
     RAG Chatbot endpoint - answers questions using the RAG pipeline.

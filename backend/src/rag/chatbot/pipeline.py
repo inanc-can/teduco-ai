@@ -24,8 +24,8 @@ BACKEND_DIR = RAG_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 sys.path.insert(0, str(RAG_DIR))
 
-from .loader import DocumentLoader
-from .retriever import RetrievalPipeline
+from rag.chatbot.loader import DocumentLoader
+from rag.chatbot.retriever import RetrievalPipeline
 
 # Load environment variables
 load_dotenv()
