@@ -85,14 +85,14 @@ const initialFormData: Partial<OnboardingFormValues> = {
   targetProgram: [],
   preferredIntake: "",
   highSchoolName: "",
-  highSchoolGPA: "",
+  highSchoolGPA: undefined,
   highSchoolGPAScale: "",
-  highSchoolGradYear: "",
+  highSchoolGradYear: undefined,
   yksPlaced: "",
   universityName: "",
   universityProgram: "",
-  universityGPA: "",
-  creditsCompleted: "",
+  universityGPA: undefined,
+  creditsCompleted: undefined,
   expectedGraduation: "",
   studyMode: "",
   researchFocus: "",
@@ -196,8 +196,25 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
 
   const handleFormSubmit = async (data: Record<string, unknown>) => {
     try {
-      await completeOnboarding.mutateAsync(data as OnboardingFormValues)
-      onComplete?.(data as OnboardingFormValues)
+      // Transform numeric fields to ensure they're proper numbers (not strings or NaN)
+      const transformedData = {
+        ...data,
+        highSchoolGPA: data.highSchoolGPA !== undefined && data.highSchoolGPA !== "" && !Number.isNaN(data.highSchoolGPA) 
+          ? Number(data.highSchoolGPA) 
+          : undefined,
+        highSchoolGradYear: data.highSchoolGradYear !== undefined && data.highSchoolGradYear !== "" && !Number.isNaN(data.highSchoolGradYear)
+          ? Number(data.highSchoolGradYear)
+          : undefined,
+        universityGPA: data.universityGPA !== undefined && data.universityGPA !== "" && !Number.isNaN(data.universityGPA)
+          ? Number(data.universityGPA)
+          : undefined,
+        creditsCompleted: data.creditsCompleted !== undefined && data.creditsCompleted !== "" && !Number.isNaN(data.creditsCompleted)
+          ? Number(data.creditsCompleted)
+          : undefined,
+      };
+      
+      await completeOnboarding.mutateAsync(transformedData as OnboardingFormValues)
+      onComplete?.(transformedData as OnboardingFormValues)
     } catch (error) {
       // Error already handled by the hook
       console.error("Submission error:", error)
@@ -217,7 +234,7 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   ];
 
   return (
-    <div className="w-full max-w-3xl mx-auto py-10 px-4">
+    <div className="w-full">
       <motion.div className="mb-8" initial={{ opacity: 0, y: -24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
         <div className="flex justify-between mb-2">
           {steps.map((step, index) => (
@@ -448,8 +465,10 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Label htmlFor="highSchoolGPA">GPA</Label>
                               <Input
                                 id="highSchoolGPA"
+                                type="number"
+                                step="0.01"
                                 placeholder="85"
-                                {...register("highSchoolGPA")}
+                                {...register("highSchoolGPA", { valueAsNumber: true })}
                               />
                               {errors.highSchoolGPA && <p className="text-xs text-red-500">{errors.highSchoolGPA.message}</p>}
                             </div>
@@ -475,10 +494,26 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
 
                           <div className="space-y-2">
                             <Label htmlFor="highSchoolGradYear">Graduation year</Label>
-                            <Input
-                              id="highSchoolGradYear"
-                              placeholder="2024"
-                              {...register("highSchoolGradYear")}
+                            <Controller
+                              name="highSchoolGradYear"
+                              control={control}
+                              render={({ field }) => (
+                                <Select 
+                                  value={field.value?.toString() ?? ""} 
+                                  onValueChange={(val) => field.onChange(val ? parseInt(val, 10) : undefined)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select year" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {Array.from({ length: 10 }, (_, i) => (2024 + i).toString()).map((year) => (
+                                      <SelectItem key={year} value={year}>
+                                        {year}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )}
                             />
                             {errors.highSchoolGradYear && <p className="text-xs text-red-500">{errors.highSchoolGradYear.message}</p>}
                           </div>
@@ -532,8 +567,10 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Label htmlFor="universityGPA">GPA average</Label>
                               <Input
                                 id="universityGPA"
-                                placeholder="3.40 / 3.5"
-                                {...register("universityGPA")}
+                                type="number"
+                                step="0.01"
+                                placeholder="3.40"
+                                {...register("universityGPA", { valueAsNumber: true })}
                               />
                               {errors.universityGPA && <p className="text-xs text-red-500">{errors.universityGPA.message}</p>}
                             </div>
@@ -541,8 +578,9 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                               <Label htmlFor="creditsCompleted">Credits completed</Label>
                               <Input
                                 id="creditsCompleted"
-                                placeholder="90 ECTS / 60 US"
-                                {...register("creditsCompleted")}
+                                type="number"
+                                placeholder="90"
+                                {...register("creditsCompleted", { valueAsNumber: true })}
                               />
                               {errors.creditsCompleted && <p className="text-xs text-red-500">{errors.creditsCompleted.message}</p>}
                             </div>
