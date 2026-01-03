@@ -181,6 +181,16 @@ def update_settings_put(payload: UserProfileUpdate, user_id: str = Depends(get_c
     """Update user settings via PUT (alias for profile)."""
     return update_profile(payload, user_id)
 
+@app.get("/onboarding")
+def get_onboarding_status(user_id: str = Depends(get_current_user)):
+    """Get onboarding status for the current user."""
+    user_res = supabase.table("users").select("onboarding_completed").eq("user_id", user_id).execute()
+    
+    if not user_res.data or len(user_res.data) == 0:
+        return {"onboarding_completed": False}
+    
+    return {"onboarding_completed": user_res.data[0].get("onboarding_completed", False)}
+
 @app.post("/onboarding")
 def onboarding(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
     """Onboarding endpoint (calls update_profile)."""

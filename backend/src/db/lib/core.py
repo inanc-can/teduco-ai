@@ -18,19 +18,21 @@ def upsert_user(auth_uid: str, first_name: str, last_name: str, **extras):
 
 # ---------- EDUCATION ----------
 def save_university_edu(user_id: str, data: dict):
-    """Save university education data with proper schema mapping."""
+    """Save university education data with proper schema mapping.
+    Expects snake_case keys from Pydantic model_dump().
+    """
     payload = {
         "user_id": user_id,
-        "university_name": data.get("universityName"),
-        "university_program": data.get("universityProgram"),
+        "university_name": data.get("university_name"),
+        "university_program": data.get("university_program"),
     }
     # Handle numeric fields
-    if gpa := data.get("universityGPA"):
+    if gpa := data.get("university_gpa"):
         payload["gpa"] = float(gpa)
-    if credits := data.get("creditsCompleted"):
+    if credits := data.get("credits_completed"):
         payload["credits_completed"] = int(credits)
     # Handle date field - parse common formats
-    if eg := data.get("expectedGraduation"):
+    if eg := data.get("expected_graduation"):
         try:
             # Try ISO format first (YYYY-MM-DD)
             parsed = date.fromisoformat(eg)
@@ -45,48 +47,51 @@ def save_university_edu(user_id: str, data: dict):
                 # Skip if unparseable
                 pass
     # Handle optional fields
-    if study_mode := data.get("studyMode"):
+    if study_mode := data.get("study_mode"):
         payload["study_mode"] = study_mode
-    if research_focus := data.get("researchFocus"):
+    if research_focus := data.get("research_focus"):
         payload["research_focus"] = research_focus
-    if portfolio_link := data.get("portfolioLink"):
+    if portfolio_link := data.get("portfolio_link"):
         payload["portfolio_link"] = portfolio_link
     
     return supabase.table("university_education").upsert(payload).execute()
 
 def save_high_school_edu(user_id: str, data: dict):
-    """Save high school education data with proper schema mapping."""
+    """Save high school education data with proper schema mapping.
+    Expects snake_case keys from Pydantic model_dump().
+    """
     payload = {
         "user_id": user_id,
-        "high_school_name": data.get("highSchoolName"),
+        "high_school_name": data.get("high_school_name"),
     }
     # Handle numeric fields
-    if gpa := data.get("highSchoolGPA"):
+    if gpa := data.get("high_school_gpa"):
         payload["gpa"] = float(gpa)
-    if gpa_scale := data.get("highSchoolGPAScale"):
+    if gpa_scale := data.get("high_school_gpa_scale"):
         payload["gpa_scale"] = float(gpa_scale)
-    if grad_year := data.get("highSchoolGradYear"):
+    if grad_year := data.get("high_school_grad_year"):
         payload["grad_year"] = int(grad_year)
     # Handle optional fields
-    if yks_placed := data.get("yksPlaced"):
+    if yks_placed := data.get("yks_placed"):
         payload["yks_placed"] = yks_placed
     if extracurriculars := data.get("extracurriculars"):
         payload["extracurriculars"] = extracurriculars
-    if scholarship_interest := data.get("scholarshipInterest"):
+    if scholarship_interest := data.get("scholarship_interest"):
         payload["scholarship_interest"] = scholarship_interest
     
     return supabase.table("high_school_education").upsert(payload).execute()
 
 # ---------- ONBOARDING PREFERENCES ----------
 def save_onboarding_preferences(user_id: str, data: dict):
+    """Save onboarding preferences. Expects snake_case keys from Pydantic model_dump()."""
     payload = {
         "user_id": user_id,
-        "desired_countries": data.get("desiredCountries", []),
-        "desired_fields": data.get("desiredField", []),
-        "target_programs": data.get("targetProgram", []),
-        "preferred_intake": data.get("preferredIntake"),
-        "preferred_support": data.get("preferredSupport"),
-        "additional_notes": data.get("additionalNotes"),
+        "desired_countries": data.get("desired_countries", []),
+        "desired_fields": data.get("desired_field", []),
+        "target_programs": data.get("target_program", []),
+        "preferred_intake": data.get("preferred_intake"),
+        "preferred_support": data.get("preferred_support"),
+        "additional_notes": data.get("additional_notes"),
     }
     return supabase.table("onboarding_preferences").upsert(payload).execute()
 

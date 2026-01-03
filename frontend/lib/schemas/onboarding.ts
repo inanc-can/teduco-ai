@@ -22,9 +22,15 @@ export const profileSchema = z.object({
 // Step 3: Education (High School)
 export const highSchoolEducationSchema = z.object({
   highSchoolName: z.string().min(1, "High school name is required"),
-  highSchoolGPA: z.string().min(1, "GPA is required"),
+  highSchoolGPA: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number({ message: "GPA is required" }).min(0).max(100)
+  ),
   highSchoolGPAScale: z.string().optional(),
-  highSchoolGradYear: z.string().min(1, "Graduation year is required"),
+  highSchoolGradYear: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number({ message: "Graduation year is required" }).int().min(2000).max(2040)
+  ),
   yksPlaced: z.string().optional(),
   extracurriculars: z.string().optional(),
   scholarshipInterest: z.string().optional(),
@@ -34,8 +40,14 @@ export const highSchoolEducationSchema = z.object({
 export const universityEducationSchema = z.object({
   universityName: z.string().min(1, "University name is required"),
   universityProgram: z.string().min(1, "Program is required"),
-  universityGPA: z.string().min(1, "GPA is required"),
-  creditsCompleted: z.string().min(1, "Credits completed is required"),
+  universityGPA: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number({ message: "GPA is required" }).min(0).max(4.0)
+  ),
+  creditsCompleted: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number({ message: "Credits completed is required" }).int().min(0)
+  ),
   expectedGraduation: z.string().optional(),
   studyMode: z.string().optional(),
   researchFocus: z.string().optional(),
@@ -69,17 +81,29 @@ export const onboardingSchema = z.object({
   preferredIntake: z.string().optional(),
   // High school fields (optional when university path)
   highSchoolName: z.string().optional(),
-  highSchoolGPA: z.string().optional(),
+  highSchoolGPA: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number().min(0).max(100).optional()
+  ),
   highSchoolGPAScale: z.string().optional(),
-  highSchoolGradYear: z.string().optional(),
+  highSchoolGradYear: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number().int().min(2000).max(2040).optional()
+  ),
   yksPlaced: z.string().optional(),
   extracurriculars: z.string().optional(),
   scholarshipInterest: z.string().optional(),
   // University fields (optional when high school path)
   universityName: z.string().optional(),
   universityProgram: z.string().optional(),
-  universityGPA: z.string().optional(),
-  creditsCompleted: z.string().optional(),
+  universityGPA: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number().min(0).max(4.0).optional()
+  ),
+  creditsCompleted: z.preprocess(
+    (val) => (val === "" || val === undefined ? undefined : Number(val)),
+    z.number().int().min(0).optional()
+  ),
   expectedGraduation: z.string().optional(),
   studyMode: z.string().optional(),
   researchFocus: z.string().optional(),
