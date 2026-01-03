@@ -83,15 +83,16 @@ export default function SettingsPage() {
   // Load settings data when available
   useEffect(() => {
     if (settings) {
-      // Convert numeric and boolean fields to strings for form compatibility
-      // Also map API field names (camelCase) to form field names (some with different casing)
+      // Map API field names to form field names
+      // Numeric fields (with z.preprocess) stay as numbers
+      // String fields need toString() if API returns numbers
       reset({
         ...settings,
-        highSchoolGradYear: settings.highSchoolGradYear?.toString(),
-        highSchoolGPA: settings.highSchoolGpa?.toString(),
+        highSchoolGradYear: settings.highSchoolGradYear ?? undefined,
+        highSchoolGPA: settings.highSchoolGpa ?? undefined,
         highSchoolGPAScale: settings.highSchoolGpaScale?.toString(),
-        universityGPA: settings.universityGpa?.toString(),
-        creditsCompleted: settings.creditsCompleted?.toString(),
+        universityGPA: settings.universityGpa ?? undefined,
+        creditsCompleted: settings.creditsCompleted ?? undefined,
         yksPlaced: settings.yksPlaced?.toString(),
       })
     }
@@ -153,14 +154,14 @@ export default function SettingsPage() {
       // Clear the document files after successful upload
       setDocumentFiles({})
       
-      // Convert string fields back to their proper types for the API
+      // Prepare API data - fields are already in correct types from the form
       const apiData = {
         ...data,
-        highSchoolGradYear: data.highSchoolGradYear ? parseInt(data.highSchoolGradYear) : undefined,
-        highSchoolGPA: data.highSchoolGPA ? parseFloat(data.highSchoolGPA) : undefined,
+        highSchoolGradYear: data.highSchoolGradYear ?? undefined,
+        highSchoolGPA: data.highSchoolGPA ?? undefined,
         highSchoolGPAScale: data.highSchoolGPAScale ? parseFloat(data.highSchoolGPAScale) : undefined,
-        universityGPA: data.universityGPA ? parseFloat(data.universityGPA) : undefined,
-        creditsCompleted: data.creditsCompleted ? parseInt(data.creditsCompleted) : undefined,
+        universityGPA: data.universityGPA ?? undefined,
+        creditsCompleted: data.creditsCompleted ?? undefined,
         yksPlaced: data.yksPlaced ? data.yksPlaced === 'true' : undefined,
       }
       
