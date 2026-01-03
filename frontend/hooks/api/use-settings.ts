@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api-client'
 import { toast } from 'sonner'
+import { config } from '@/lib/config'
 import type { Settings, SettingsUpdate } from '@/lib/types/api'
 
 // Query keys
@@ -16,6 +17,8 @@ export function useSettings() {
   return useQuery<Settings>({
     queryKey: settingsKeys.detail(),
     queryFn: () => apiClient.getSettings(),
+    staleTime: config.cache.userProfile.staleTime,
+    gcTime: config.cache.userProfile.gcTime,
   })
 }
 

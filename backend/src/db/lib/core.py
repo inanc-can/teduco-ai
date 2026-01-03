@@ -1,10 +1,25 @@
 from supabase import create_client
 from uuid import uuid4
 from datetime import date, datetime
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+from contextlib import contextmanager
 from ...core.config import get_settings
 
 settings = get_settings()
 supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+
+# Thread pool for parallel database queries
+# Using max_workers=4 for optimal balance between parallelism and resource usage
+_db_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="db_query")
+
+# Ensure proper cleanup when application shuts down
+import atexit
+def _cleanup_executor():
+    """Cleanup the thread pool executor on application shutdown"""
+    _db_executor.shutdown(wait=True, cancel_futures=True)
+
+atexit.register(_cleanup_executor)
 
 # ---------- USERS ----------
 def upsert_user(auth_uid: str, first_name: str, last_name: str, **extras):
@@ -97,31 +112,83 @@ def save_onboarding_preferences(user_id: str, data: dict):
 
 # ---------- GET USER DATA ----------
 def get_user_profile(user_id: str):
-    """Get complete user profile including education and preferences."""
+    """
+    Get complete user profile including education and preferences.
+    Optimized to fetch data in parallel to reduce latency.
+    Includes proper error handling and timeout management.
+    """
     result = {
         "user": None,
         "education": None,
         "preferences": None
     }
     
-    # Get user basic info
-    user_res = supabase.table("users").select("*").eq("user_id", user_id).execute()
-    if user_res.data:
-        result["user"] = user_res.data[0]
+    # Execute all queries in parallel for better performance
+    def fetch_user():
+        return supabase.table("users").select("*").eq("user_id", user_id).execute()
     
-    # Get education info (try both tables)
-    hs_res = supabase.table("high_school_education").select("*").eq("user_id", user_id).execute()
-    if hs_res.data:
-        result["education"] = {"type": "high-school", **hs_res.data[0]}
-    else:
-        uni_res = supabase.table("university_education").select("*").eq("user_id", user_id).execute()
-        if uni_res.data:
-            result["education"] = {"type": "university", **uni_res.data[0]}
+    def fetch_high_school():
+        return supabase.table("high_school_education").select("*").eq("user_id", user_id).execute()
     
-    # Get preferences
-    pref_res = supabase.table("onboarding_preferences").select("*").eq("user_id", user_id).execute()
-    if pref_res.data:
-        result["preferences"] = pref_res.data[0]
+    def fetch_university():
+        return supabase.table("university_education").select("*").eq("user_id", user_id).execute()
+    
+    def fetch_preferences():
+        return supabase.table("onboarding_preferences").select("*").eq("user_id", user_id).execute()
+    
+    # Submit all queries to thread pool for parallel execution
+    futures = {
+        "user": _db_executor.submit(fetch_user),
+        "high_school": _db_executor.submit(fetch_high_school),
+        "university": _db_executor.submit(fetch_university),
+        "preferences": _db_executor.submit(fetch_preferences),
+    }
+    
+    try:
+        # Collect results with timeout to prevent hanging
+        # Set timeout to 5 seconds for all queries
+        from concurrent.futures import TimeoutError, as_completed
+        timeout = 5.0
+        
+        # Wait for user query first (required)
+        user_res = futures["user"].result(timeout=timeout)
+        if user_res.data:
+            result["user"] = user_res.data[0]
+        
+        # Get education info (try both tables)
+        try:
+            hs_res = futures["high_school"].result(timeout=timeout)
+            if hs_res.data:
+                result["education"] = {"type": "high-school", **hs_res.data[0]}
+            else:
+                uni_res = futures["university"].result(timeout=timeout)
+                if uni_res.data:
+                    result["education"] = {"type": "university", **uni_res.data[0]}
+        except TimeoutError:
+            # Log timeout but continue - education is optional
+            import logging
+            logging.warning(f"Timeout fetching education for user {user_id}")
+        
+        # Get preferences
+        try:
+            pref_res = futures["preferences"].result(timeout=timeout)
+            if pref_res.data:
+                result["preferences"] = pref_res.data[0]
+        except TimeoutError:
+            # Log timeout but continue - preferences are optional
+            import logging
+            logging.warning(f"Timeout fetching preferences for user {user_id}")
+            
+    except TimeoutError as e:
+        # Cancel remaining futures if user query times out
+        for future in futures.values():
+            future.cancel()
+        raise Exception(f"Database query timeout for user {user_id}") from e
+    except Exception as e:
+        # Cancel all futures on error
+        for future in futures.values():
+            future.cancel()
+        raise
     
     return result
 

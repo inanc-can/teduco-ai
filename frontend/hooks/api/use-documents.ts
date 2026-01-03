@@ -18,7 +18,8 @@ export function useDocuments() {
     queryKey: documentKeys.list(),
     queryFn: () => apiClient.getDocuments(),
     retry: 1, // Only retry once for documents
-    staleTime: 30000, // 30 seconds
+    staleTime: config.cache.documents.staleTime,
+    gcTime: config.cache.documents.gcTime,
     // Don't throw error, just return empty array if backend is down
     placeholderData: [],
   })

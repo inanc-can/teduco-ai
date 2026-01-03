@@ -37,8 +37,35 @@ export const config = {
 
   // Cache Configuration
   cache: {
-    staleTime: 1000 * 60, // 1 minute
-    gcTime: 1000 * 60 * 5, // 5 minutes (garbage collection time)
+    // User profile and settings - rarely change, can be cached longer
+    userProfile: {
+      staleTime: 1000 * 60 * 5, // 5 minutes
+      gcTime: 1000 * 60 * 30, // 30 minutes
+    },
+    
+    // Documents list - changes infrequently
+    documents: {
+      staleTime: 1000 * 60 * 2, // 2 minutes
+      gcTime: 1000 * 60 * 10, // 10 minutes
+    },
+    
+    // Chats list - moderately dynamic
+    chats: {
+      staleTime: 1000 * 60, // 1 minute
+      gcTime: 1000 * 60 * 5, // 5 minutes
+    },
+    
+    // Messages - highly dynamic, short cache
+    messages: {
+      staleTime: 1000 * 30, // 30 seconds
+      gcTime: 1000 * 60 * 5, // 5 minutes
+    },
+    
+    // Default for other queries
+    default: {
+      staleTime: 1000 * 60, // 1 minute
+      gcTime: 1000 * 60 * 5, // 5 minutes
+    },
   },
 } as const
 

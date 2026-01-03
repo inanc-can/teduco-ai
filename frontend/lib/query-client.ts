@@ -3,11 +3,11 @@ import { config } from './config'
 
 const queryConfig: DefaultOptions = {
   queries: {
-    // Data is considered fresh for 1 minute
-    staleTime: config.cache.staleTime,
+    // Data is considered fresh for the default time
+    staleTime: config.cache.default.staleTime,
     
-    // Garbage collection time - 5 minutes
-    gcTime: config.cache.gcTime,
+    // Garbage collection time - default
+    gcTime: config.cache.default.gcTime,
     
     // Don't refetch on window focus in development to reduce noise
     refetchOnWindowFocus: process.env.NODE_ENV === 'production',
