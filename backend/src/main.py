@@ -519,10 +519,27 @@ def send_message(
         if not user_msg_response.data:
             raise HTTPException(500, "Failed to save message")
         
-        # Call AI service to generate response
+        # Call AI service to generate response with chat history
         if rag_pipeline:
             try:
-                ai_response_content = rag_pipeline.answer_question(message.content)
+                # Fetch recent chat history for context
+                history_response = supabase.table("messages")\
+                    .select("role, content")\
+                    .eq("chat_id", chat_id)\
+                    .order("created_at", desc=False)\
+                    .limit(10)\
+                    .execute()
+                
+                # Format chat history for the RAG pipeline (exclude the current message just added)
+                chat_history = []
+                if history_response.data:
+                    for msg in history_response.data[:-1]:  # Exclude the last message (current user message)
+                        chat_history.append({
+                            "role": msg["role"],
+                            "content": msg["content"]
+                        })
+                
+                ai_response_content = rag_pipeline.answer_question(message.content, chat_history=chat_history)
             except Exception as e:
                 print(f"Error generating AI response: {e}")
                 ai_response_content = "I apologize, but I encountered an error while processing your request."
@@ -642,9 +659,19 @@ async def chat(request: ChatRequest):
         # Save user's question
         storage.add_message_to_chat(chat.chat_id, request.question, "user")
         
-        # Get answer from RAG pipeline
-        print(f"[RAG] Querying RAG pipeline...")
-        answer = rag_pipeline.answer_question(request.question)
+        # Get chat history (excluding the just-added user message) for context
+        chat_history_raw = storage.get_chat_history(chat.chat_id)
+        chat_history = []
+        if chat_history_raw and len(chat_history_raw) > 1:  # More than just the current message
+            for msg in chat_history_raw[:-1]:  # Exclude the last message (current user message)
+                chat_history.append({
+                    "role": msg["role"],
+                    "content": msg["content"]
+                })
+        
+        # Get answer from RAG pipeline with chat history
+        print(f"[RAG] Querying RAG pipeline with {len(chat_history)} history messages...")
+        answer = rag_pipeline.answer_question(request.question, chat_history=chat_history)
         print(f"[RAG] ✓ Response generated")
         
         # Save assistant's answer

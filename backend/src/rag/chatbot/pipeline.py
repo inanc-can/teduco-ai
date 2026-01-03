@@ -8,8 +8,9 @@ into a complete RAG pipeline.
 import os
 import sys
 from pathlib import Path
-from typing import Optional, List
-from langchain_core.prompts import PromptTemplate
+from typing import Optional, List, Dict
+from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from langchain_groq import ChatGroq
@@ -172,8 +173,9 @@ class RAGChatbotPipeline:
         
         print(f"  [PIPELINE] ✓ LLM initialized (model: {self.model_name})")
         
-        # Create prompt template
-        prompt_template = """You are a helpful university admissions advisor for the Technical University of Munich (TUM).
+        # Create prompt template with chat history support
+        self.prompt = ChatPromptTemplate.from_messages([
+            ("system", """You are a helpful university admissions advisor for the Technical University of Munich (TUM).
 
 Answer questions about degree programs, admission requirements, and application processes using the context below.
 
@@ -183,20 +185,14 @@ INSTRUCTIONS:
 - Include key details (dates, deadlines, requirements) but be brief
 - Use bullet points for lists to save space
 - Only say "I don't have that information" if the context is empty
+- Use the conversation history to understand the user's context and refer back to previous topics when relevant
+- If the user asks a follow-up question, use the chat history to understand what they're referring to
 
-=== CONTEXT ===
-{context}
-
-=== QUESTION ===
-{question}
-
-=== ANSWER ===
-"""
-        
-        self.prompt = PromptTemplate(
-            input_variables=["context", "question"],
-            template=prompt_template
-        )
+=== CONTEXT FROM DOCUMENTS ===
+{context}"""),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{question}")
+        ])
         
         print("  [PIPELINE] ✓ Prompt template configured")
         
@@ -289,32 +285,62 @@ INSTRUCTIONS:
             
             return formatted
         
-        # Build RAG chain with debug retriever
+        # Build RAG chain with debug retriever and chat history support
         # Use RunnableLambda to wrap both functions for the chain
+        def get_question(x):
+            """Extract question from input dict or use input directly."""
+            if isinstance(x, dict):
+                return x.get("question", x)
+            return x
+        
+        def get_chat_history(x):
+            """Extract chat history from input dict or return empty list."""
+            if isinstance(x, dict):
+                return x.get("chat_history", [])
+            return []
+        
         self.chain = (
             {
-                "context": RunnableLambda(retrieve_with_debug) | RunnableLambda(format_docs), 
-                "question": RunnablePassthrough()
+                "context": RunnableLambda(lambda x: get_question(x)) | RunnableLambda(retrieve_with_debug) | RunnableLambda(format_docs), 
+                "question": RunnableLambda(lambda x: get_question(x)),
+                "chat_history": RunnableLambda(lambda x: get_chat_history(x))
             }
             | self.prompt
             | self.llm
             | StrOutputParser()
         )
         
-        print("  [PIPELINE] ✓ RAG chain configured and ready!")
+        print("  [PIPELINE] ✓ RAG chain configured with chat history support!")
     
-    def answer_question(self, question: str) -> str:
+    def answer_question(self, question: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
         """
         Answer a user's question using the RAG pipeline.
         
         Args:
             question: User's question
+            chat_history: Optional list of previous messages in the format:
+                          [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
             
         Returns:
             Answer string
         """
         try:
-            answer = self.chain.invoke(question)
+            # Convert chat history to LangChain message format
+            messages = []
+            if chat_history:
+                for msg in chat_history:
+                    if msg.get("role") == "user":
+                        messages.append(HumanMessage(content=msg.get("content", "")))
+                    elif msg.get("role") == "assistant":
+                        messages.append(AIMessage(content=msg.get("content", "")))
+            
+            # Build the input with chat history
+            chain_input = {
+                "question": question,
+                "chat_history": messages
+            }
+            
+            answer = self.chain.invoke(chain_input)
             return answer
         except Exception as e:
             error_msg = f"Error generating response: {str(e)}"
