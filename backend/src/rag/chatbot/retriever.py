@@ -26,7 +26,10 @@ sys.path.insert(0, str(RAG_DIR))      # Add rag to path
 sys.path.insert(0, str(CHUNKER_DIR))  # Add chunker to path
 
 # Import using the same pattern as crawler.py
-from chunker.langchain_splitters import MarkdownSplitter
+from chunker.langchain_splitters import (
+    MarkdownHeaderSplitter,
+    RecursiveTextSplitter
+)
 
 
 class RetrievalPipeline:
@@ -64,16 +67,18 @@ class RetrievalPipeline:
         # Initialize components
         self.embeddings = HuggingFaceEmbeddings(
             model_name=embedding_model,
+            encode_kwargs={
+                "normalize_embeddings": True  # VERY IMPORTANT for cosine similarity
+            },
             model_kwargs={'device': 'cpu'}
         )
-        
-        self.text_splitter = RecursiveCharacterTextSplitter(
+        # self.text_splitter = RecursiveTextSplitter()
+        self.text_splitter = RecursiveTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
-            separators=["\n\n", "\n", " ", ""]
         )
         
-        self.md_splitter = MarkdownSplitter()
+        self.md_splitter = MarkdownHeaderSplitter()
         
         self.vector_store: Optional[FAISS] = None
         self.split_docs: List[Document] = []
@@ -103,7 +108,8 @@ class RetrievalPipeline:
             # If document is already from markdown chunks, use as-is
             if doc.metadata.get("type") == "aptitude_assessment":
                 # Already chunked by markdown splitter, just add to chunks
-                all_chunks.append(doc)
+                chunks = self.text_splitter.split_documents([doc])
+                all_chunks.extend(chunks)
             else:
                 # For metadata/JSON content, only split if document is very long
                 # Most metadata documents are complete units and shouldn't be split
@@ -112,7 +118,7 @@ class RetrievalPipeline:
                 
                 # Only split if document is significantly longer than chunk_size
                 # This preserves complete information for metadata documents
-                if doc_length > self.chunk_size * 3:  # Only split if > 3x chunk_size (1500+ chars)
+                if doc_length > self.chunk_size * 2:  # Only split if > 3x chunk_size (1500+ chars)
                     # Document is long enough to warrant splitting
                     chunks = self.text_splitter.split_documents([doc])
                     all_chunks.extend(chunks)

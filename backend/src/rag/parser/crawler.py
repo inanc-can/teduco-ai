@@ -12,10 +12,12 @@ from typing import Any, Dict, Optional
 from dotenv import load_dotenv
 from conversion import DoclingPDFParser
 from langchain_community.document_loaders import WebBaseLoader
+
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))          # .../rag/parser
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, ".."))   # .../rag
 sys.path.append(PROJECT_ROOT)
-from chunker.langchain_splitters import MarkdownSplitter
+
+from chunker.langchain_splitters import MarkdownHeaderSplitter
 
 
 logging.basicConfig(
@@ -60,7 +62,7 @@ class TumDegreeParser:
         self.pdf_parser = DoclingPDFParser(force_full_page_ocr=True)
         self.bluebox: Dict[str, Any] = {}
         self.accordion: Dict[str, Any] = {}
-        self.md_splitter = MarkdownSplitter(chunk_size=1000, chunk_overlap=150)
+        self.md_splitter = MarkdownHeaderSplitter()
 
     def notify(self, message: str) -> None:
         """Log a message like a print statement."""
@@ -227,7 +229,7 @@ class TumDegreeParser:
                     # optionally export markdown
                     try:
                         md = self.pdf_parser.conversion_to_markdown(conversion, output_dir, file_name)
-                        self.md_splitter.split_and_export(md, output_dir, file_name=file_name, doc_type="aptitude-assessment")
+                        self.md_splitter.split_and_export(md, output_dir, file_name=file_name)
                         self.notify(f"Converted PDF to markdown for {program_slug}.")
                     except Exception as e:
                         logging.exception("Markdown export failed")
