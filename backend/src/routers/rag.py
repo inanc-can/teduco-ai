@@ -56,8 +56,11 @@ def is_rag_ready() -> bool:
 # RAG CHATBOT ENDPOINT
 # ============================================================================
 
+from fastapi import Request
+
+
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: Request):
     """
     RAG Chatbot endpoint - answers questions using the RAG pipeline.
     
@@ -112,10 +115,27 @@ async def chat(request: ChatRequest):
                     "content": msg["content"]
                 })
         
-        # Get answer from RAG pipeline with chat history
+        # Get answer from RAG pipeline (agentic if user available) with chat history
         print(f"[RAG] Querying RAG pipeline with {len(chat_history)} history messages...")
-        answer = rag_pipeline.answer_question(request.question, chat_history=chat_history)
-        print(f"[RAG] ✓ Response generated")
+        # Try to get optional user id from Authorization header; keep behavior unchanged for unauthenticated calls
+        from core.dependencies import get_optional_current_user
+        try:
+            auth_header = http_request.headers.get("authorization")
+            user_id = get_optional_current_user(auth_header)
+        except Exception:
+            user_id = None
+
+        try:
+            # If we have an agent, prefer agent.run which can use user data
+            if hasattr(rag_pipeline, 'agent'):
+                answer = rag_pipeline.agent.run(request.question, user_id=user_id, chat_history=chat_history)
+            else:
+                answer = rag_pipeline.answer_question(request.question, chat_history=chat_history)
+            print(f"[RAG] ✓ Response generated")
+        except Exception as e:
+            print(f"[RAG] Agent failed: {e}; falling back to answer_question")
+            answer = rag_pipeline.answer_question(request.question, chat_history=chat_history)
+            print(f"[RAG] ✓ Fallback response generated")
         
         # Save assistant's answer
         storage.add_message_to_chat(chat.chat_id, answer, "assistant")

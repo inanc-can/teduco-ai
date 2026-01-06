@@ -5,6 +5,7 @@ Shared dependencies for FastAPI routers.
 from fastapi import Header, HTTPException
 from db.lib.core import supabase
 from core.config import get_settings as get_app_settings
+from typing import Optional
 
 
 def get_current_user(
@@ -28,6 +29,28 @@ def get_current_user(
         return user.user.id  # Supabase UID (uuid string)
     except Exception:
         raise HTTPException(401, "Invalid or expired token")
+
+
+def get_optional_current_user(
+    authorization: str = Header(None, description="Bearer <token>")
+) -> Optional[str]:
+    """
+    Optional version of `get_current_user` that returns `None` when no Authorization header
+    is provided (or when the token is invalid). This allows endpoints to accept both
+    authenticated and anonymous requests without changing the frontend.
+    """
+    if not authorization:
+        return None
+    try:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            return None
+        user = supabase.auth.get_user(token)
+        if user is None:
+            return None
+        return user.user.id
+    except Exception:
+        return None
 
 
 def get_signed_url(path: str, expires_sec: int = 60) -> str:

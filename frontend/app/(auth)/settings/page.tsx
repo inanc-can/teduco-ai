@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
 import { motion } from "framer-motion"
 import { Loader2, Save, User, Briefcase, GraduationCap, FileText, Upload, X, Eye, Trash2 } from "lucide-react"
@@ -81,6 +82,8 @@ export default function SettingsPage() {
   })
 
   // Load settings data when available
+  const searchParams = useSearchParams()
+
   useEffect(() => {
     if (settings) {
       // Map API field names to form field names
@@ -96,7 +99,13 @@ export default function SettingsPage() {
         yksPlaced: settings.yksPlaced?.toString(),
       })
     }
-  }, [settings, reset])
+
+    // If a tab query param is provided (e.g. ?tab=documents), open that tab
+    const tab = searchParams.get('tab')
+    if (tab) {
+      setActiveTab(tab)
+    }
+  }, [settings, reset, searchParams])
 
   const formData = watch()
   const applicantType = formData.applicantType as ApplicantType | undefined

@@ -166,9 +166,59 @@ export default function DashboardPage() {
   }, [chatId])
 
   const append = useCallback((message: { role: "user"; content: string }) => {
-    // This is handled by React Query optimistic updates
     logger.logAction('append_message', { role: message.role })
-  }, [])
+
+    const messageContent = message.content?.trim()
+    if (!messageContent) return
+
+    // If no chat exists, create one first and then send the message
+    if (!chatId) {
+      createChat.mutate(
+        { title: 'New Chat' },
+        {
+          onSuccess: (newChat) => {
+            router.push(`/dashboard?chat=${newChat.chatId}`)
+
+            // Send the message to the newly created chat shortly after navigation
+            setTimeout(() => {
+              sendMessage.mutate(
+                { chatId: newChat.chatId, message: messageContent },
+                {
+                  onSuccess: () => {
+                    if (wsConnected) {
+                      sendChatMessage(messageContent)
+                    }
+                  },
+                  onError: (error) => {
+                    logger.error('Failed to send appended message', error as Error)
+                  }
+                }
+              )
+            }, 100)
+          },
+          onError: (error) => {
+            logger.error('Failed to create chat (append)', error as Error)
+          }
+        }
+      )
+      return
+    }
+
+    // Send message to existing chat
+    sendMessage.mutate(
+      { chatId, message: messageContent },
+      {
+        onSuccess: () => {
+          if (wsConnected) {
+            sendChatMessage(messageContent)
+          }
+        },
+        onError: (error) => {
+          logger.error('Failed to send appended message', error as Error, { chatId })
+        }
+      }
+    )
+  }, [chatId, createChat, router, sendMessage, sendChatMessage, wsConnected])
 
   const isEmpty = displayMessages.length === 0
 

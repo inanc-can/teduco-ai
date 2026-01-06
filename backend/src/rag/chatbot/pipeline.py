@@ -271,6 +271,18 @@ INSTRUCTIONS:
             
             # Return filtered documents (only those above threshold)
             return filtered_docs
+
+        # Initialize agentic assistant that can use user profile and docs if available
+        from rag.chatbot.agent import Agent
+
+        # Create the Agent with the existing llm, retriever pipeline and embeddings
+        self.agent = Agent(
+            llm=self.llm,
+            retriever_pipeline=self.retriever_pipeline,
+            embeddings=self.retriever_pipeline.embeddings,
+            k=self.retriever_pipeline.k,
+            similarity_threshold=self.similarity_threshold,
+        )
         
         # Format documents helper with debug output
         def format_docs(docs):
