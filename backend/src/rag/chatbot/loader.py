@@ -29,7 +29,7 @@ sys.path.insert(0, str(CHUNKER_DIR))  # Add chunker to path
 # The crawler imports like: from chunker.langchain_splitters import MarkdownSplitter
 # So we need to be in a context where 'chunker' and 'parser' are importable
 from parser.crawler import TumDegreeParser
-from chunker.langchain_splitters import MarkdownSplitter
+from chunker.langchain_splitters import MarkdownHeaderSplitter
 
 
 class DocumentLoader:
@@ -52,7 +52,7 @@ class DocumentLoader:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.crawler = TumDegreeParser(data_dir=str(self.data_dir))
-        self.md_splitter = MarkdownSplitter()
+        self.md_splitter = MarkdownHeaderSplitter()
         
     def load_from_crawler(
         self, 
@@ -175,8 +175,9 @@ class DocumentLoader:
                 md_content = f.read()
             
             # Split markdown by headers
-            md_chunks = self.md_splitter.split_by_headers(md_content)
-            md_docs = self._markdown_chunks_to_documents(md_chunks, program_slug)
+            md_chunks = self.md_splitter.split_markdown(md_content)
+            md_mapping = self.md_splitter.build_header_content_mapping(md_chunks)
+            md_docs = self._markdown_chunks_to_documents(md_mapping, program_slug)
             documents.extend(md_docs)
         
         return documents

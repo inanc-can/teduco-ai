@@ -50,7 +50,7 @@ class RAGChatbotPipeline:
         model_name: str = "llama-3.1-8b-instant",
         program_slugs: Optional[List[str]] = None,
         use_cache: bool = True,
-        embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
+        embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         k: int = 3,
