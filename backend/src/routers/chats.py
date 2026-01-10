@@ -287,9 +287,19 @@ def send_message(
                             "content": msg["content"]
                         })
                 
-                ai_response_content = rag_pipeline.answer_question(message.content, chat_history=chat_history)
+                # Use agent if available for user-personalized responses
+                if hasattr(rag_pipeline, 'agent'):
+                    ai_response_content = rag_pipeline.agent.run(
+                        message.content, 
+                        user_id=user_id, 
+                        chat_history=chat_history
+                    )
+                else:
+                    ai_response_content = rag_pipeline.answer_question(message.content, chat_history=chat_history)
             except Exception as e:
                 print(f"Error generating AI response: {e}")
+                import traceback
+                traceback.print_exc()
                 ai_response_content = "I apologize, but I encountered an error while processing your request."
         else:
             ai_response_content = "The AI service is currently unavailable. Please try again later."
