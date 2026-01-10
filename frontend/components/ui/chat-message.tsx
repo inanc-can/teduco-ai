@@ -262,7 +262,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     return <ToolCall toolInvocations={toolInvocations} />
   }
 
-  const router = useRouter()
 
   return (
     <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
