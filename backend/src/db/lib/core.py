@@ -1,7 +1,7 @@
 from supabase import create_client
 from uuid import uuid4
 from datetime import date, datetime
-from ...core.config import get_settings
+from core.config import get_settings
 
 settings = get_settings()
 supabase = create_client(settings.supabase_url, settings.supabase_service_key)

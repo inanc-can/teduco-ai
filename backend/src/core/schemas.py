@@ -2,7 +2,7 @@
 API response models with camelCase conversion for frontend.
 """
 from typing import Optional, List
-from .models import CamelCaseModel
+from core.models import CamelCaseModel
 
 # ========== User Profile Models ==========
 

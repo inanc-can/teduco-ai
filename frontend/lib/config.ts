@@ -5,7 +5,12 @@
 export const config = {
   // API Configuration
   api: {
-    baseUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000',
+    // Use an internal backend hostname when running on the server inside the container (NEXT_INTERNAL_BACKEND_URL).
+    // In the browser, use NEXT_PUBLIC_BACKEND_URL which should point to the externally reachable backend (e.g., http://localhost:8000).
+    baseUrl:
+      (typeof window === 'undefined'
+        ? process.env.NEXT_INTERNAL_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'
+        : process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8000'),
     timeout: 30000, // 30 seconds
   },
 

@@ -6,6 +6,8 @@ import { motion } from "framer-motion"
 import { Ban, ChevronRight, Code2, Loader2, Terminal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
 import {
   Collapsible,
   CollapsibleContent,
@@ -148,7 +150,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   experimental_attachments,
   toolInvocations,
   parts,
+
 }) => {
+  const router = useRouter()
   const files = useMemo(() => {
     return experimental_attachments?.map((attachment) => {
       const dataArray = dataUrlToUint8Array(attachment.url)
@@ -198,6 +202,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     )
   }
 
+
   if (parts && parts.length > 0) {
     return parts.map((part, index) => {
       if (part.type === "text") {
@@ -211,6 +216,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           >
             <div className={cn(chatBubbleVariants({ isUser, animation }))}>
               <MarkdownRenderer>{part.text}</MarkdownRenderer>
+              {/* CTA: If assistant recommends uploading a PDF, show an Upload button */}
+              {!isUser && part.text?.includes("Upload a PDF") ? (
+                <div className="mt-2">
+                  <Button size="sm" variant="outline" onClick={() => router.push('/settings?tab=documents')}>
+                    Upload documents
+                  </Button>
+                </div>
+              ) : null}
               {actions ? (
                 <div className="absolute -bottom-4 right-2 flex space-x-1 rounded-lg border bg-background p-1 text-foreground opacity-0 transition-opacity group-hover/message:opacity-100">
                   {actions}
@@ -249,10 +262,19 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     return <ToolCall toolInvocations={toolInvocations} />
   }
 
+
   return (
     <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
       <div className={cn(chatBubbleVariants({ isUser, animation }))}>
         <MarkdownRenderer>{content}</MarkdownRenderer>
+        {/* CTA: If assistant recommends uploading a PDF, show an Upload button */}
+        {!isUser && content?.includes("Upload a PDF") ? (
+          <div className="mt-2">
+            <Button size="sm" variant="outline" onClick={() => router.push('/settings?tab=documents')}>
+              Upload documents
+            </Button>
+          </div>
+        ) : null}
         {actions ? (
           <div className="absolute -bottom-4 right-2 flex space-x-1 rounded-lg border bg-background p-1 text-foreground opacity-0 transition-opacity group-hover/message:opacity-100">
             {actions}
