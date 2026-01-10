@@ -25,7 +25,7 @@ services:
         # Public URL baked into client bundles (browsers expect localhost when running locally)
         NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
         # Internal URL used by server-side code inside the frontend container
-        NEXT_INTERNAL_BACKEND_URL: http://backend:8000
+        # (Do not pass NEXT_INTERNAL_BACKEND_URL as a build arg; only set at runtime)
     env_file:
       - .env
     environment:

@@ -19,10 +19,8 @@ import traceback
 from typing import List, Optional, Dict, Any
 
 import numpy as np
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
-from langchain_core.runnables import RunnableLambda
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.documents import Document
 
 from db.lib import core as db_core
@@ -72,24 +70,24 @@ class Agent:
         )
 
         try:
-            resp = self.llm.chat([{"role": "user", "content": planner_prompt}], temperature=0)
+            # Use invoke() with HumanMessage
+            resp = self.llm.invoke([
+                HumanMessage(content=planner_prompt)
+            ], temperature=0)
         except Exception:
             # Fallback: simple heuristic
             if any(word in question.lower() for word in ["my", "me", "i ", "profile", "documents", "transcript"]):
                 return ["fetch_profile", "search_user_docs", "search_kb", "answer"]
             return ["search_kb", "answer"]
 
-        # ChatGroq client above might return a string or dict; try to parse JSON
+        # Try to parse JSON from the response content
         content = None
-        if isinstance(resp, dict):
-            # Try to extract typical structure
-            content = resp.get("choices", [{}])[0].get("message", {}).get("content") if resp.get("choices") else None
-        if content is None:
-            try:
-                # resp may be a simple string
-                content = resp[0]
-            except Exception:
-                content = str(resp)
+        if hasattr(resp, 'content'):
+            content = resp.content
+        elif isinstance(resp, dict):
+            content = resp.get("content")
+        else:
+            content = str(resp)
 
         try:
             parsed = json.loads(content)
@@ -250,10 +248,14 @@ class Agent:
         )
 
         try:
-            resp = self.llm.chat([{"role": "system", "content": system}, {"role": "user", "content": human_prompt}], temperature=0)
+            # Use invoke() with SystemMessage and HumanMessage
+            resp = self.llm.invoke([
+                SystemMessage(content=system),
+                HumanMessage(content=human_prompt)
+            ], temperature=0)
             # Extract textual content safely
-            if isinstance(resp, dict):
-                content = resp.get("choices", [{}])[0].get("message", {}).get("content") if resp.get("choices") else None
+            if hasattr(resp, 'content'):
+                content = resp.content
                 if content is None:
                     return str(resp)
                 return content.strip()

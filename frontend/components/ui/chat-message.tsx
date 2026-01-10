@@ -150,7 +150,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   experimental_attachments,
   toolInvocations,
   parts,
+
 }) => {
+  const router = useRouter()
   const files = useMemo(() => {
     return experimental_attachments?.map((attachment) => {
       const dataArray = dataUrlToUint8Array(attachment.url)

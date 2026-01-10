@@ -118,7 +118,7 @@ class RetrievalPipeline:
                 
                 # Only split if document is significantly longer than chunk_size
                 # This preserves complete information for metadata documents
-                if doc_length > self.chunk_size * 2:  # Only split if > 3x chunk_size (1500+ chars)
+                if doc_length > self.chunk_size * 2:  # Only split if > 2x chunk_size (1000+ chars)
                     # Document is long enough to warrant splitting
                     chunks = self.text_splitter.split_documents([doc])
                     all_chunks.extend(chunks)

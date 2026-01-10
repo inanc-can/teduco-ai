@@ -30,11 +30,11 @@ app = FastAPI(
     description="University admissions assistant API with RAG-powered chatbot"
 )
 
-# gurantee that main_new is only run when executing docker compose up
+# guarantee that main_new is only run when executing docker compose up
 if __name__ != "__main__":
     # Print startup message
     print("\n" + "="*70)
-    print("TEDUCO API - Starting FastAPI Application with main_new.py")
+    print("TEDUCO API - Starting FastAPI Application with main.py")
     print("="*70)
 
 # CORS configuration for frontend
