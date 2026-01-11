@@ -38,10 +38,17 @@ export function NavChats() {
   const router = useRouter()
   
   // Use React Query hooks
-  const { data: chats = [], isLoading, refetch } = useChats()
+  const { data: chats = [], isLoading, error, refetch } = useChats()
   const createChatMutation = useCreateChat()
   const deleteChatMutation = useDeleteChat()
   const updateChatMutation = useUpdateChat()
+  
+  // Log errors for debugging
+  useEffect(() => {
+    if (error) {
+      console.error('Failed to load chats:', error)
+    }
+  }, [error])
 
   // Set up realtime subscription for updates from other tabs/devices
   useEffect(() => {
@@ -105,6 +112,27 @@ export function NavChats() {
         <SidebarGroupLabel>Chats</SidebarGroupLabel>
         <SidebarMenu>
           <div className="px-2 py-4 text-sm text-muted-foreground">Loading...</div>
+        </SidebarMenu>
+      </SidebarGroup>
+    )
+  }
+  
+  if (error) {
+    return (
+      <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+        <SidebarGroupLabel>Chats</SidebarGroupLabel>
+        <SidebarMenu>
+          <div className="px-2 py-4 text-sm text-destructive">
+            Failed to load chats
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-2 h-6"
+              onClick={() => refetch()}
+            >
+              Retry
+            </Button>
+          </div>
         </SidebarMenu>
       </SidebarGroup>
     )

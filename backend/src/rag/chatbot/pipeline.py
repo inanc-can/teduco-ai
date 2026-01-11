@@ -54,7 +54,7 @@ class RAGChatbotPipeline:
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         k: int = 3,
-        similarity_threshold: float = 0.55
+        similarity_threshold: float = 0.40
     ):
         """
         Initialize the RAG chatbot pipeline.
@@ -238,8 +238,8 @@ STRICT RULES:
                 print("  - Need to rebuild vector store")
                 return []
             
-            # Filter documents by similarity threshold
-            filtered_docs = []
+            # Filter documents by similarity threshold and keep similarity for deterministic ordering
+            scored_filtered_docs = []
             for idx, (doc, score) in enumerate(results_with_scores, 1):
                 # Convert L2 distance to similarity (lower distance = higher similarity)
                 similarity = 1 / (1 + score)  # Convert distance to similarity score (0-1)
@@ -249,7 +249,7 @@ STRICT RULES:
                 # Check if document meets threshold
                 if similarity >= self.similarity_threshold:
                     print(f" ✓ (Above threshold: {self.similarity_threshold})")
-                    filtered_docs.append(doc)
+                    scored_filtered_docs.append((doc, similarity))
                 else:
                     print(f" ✗ (Below threshold: {self.similarity_threshold}) - FILTERED OUT")
                 
@@ -259,7 +259,11 @@ STRICT RULES:
                 print(f"      Key: {doc.metadata.get('key', 'N/A')}")
                 print(f"      Content Preview: {doc.page_content[:200]}...")
                 print()
-            
+
+            # Deterministic ordering by similarity (descending), with secondary key by metadata key
+            scored_filtered_docs.sort(key=lambda x: (-(x[1]), str(x[0].metadata.get('key', ''))))
+            filtered_docs = [doc for doc, _sim in scored_filtered_docs]
+
             print(f"[RETRIEVER DEBUG] After filtering: {len(filtered_docs)}/{len(results_with_scores)} documents meet threshold ({self.similarity_threshold})")
             
             if len(filtered_docs) == 0:
@@ -373,7 +377,7 @@ def initialize_rag_pipeline(
     vector_store_dir: Optional[str] = None,
     use_cache: bool = True,
     program_slugs: Optional[List[str]] = None,
-    similarity_threshold: float = 0.55
+    similarity_threshold: float = 0.40
 ) -> RAGChatbotPipeline:
     """
     Initialize the RAG pipeline (convenience function).
