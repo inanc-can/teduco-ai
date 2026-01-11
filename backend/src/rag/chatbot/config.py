@@ -34,11 +34,12 @@ CHUNK_OVERLAP = 50
 RETRIEVAL_K = 2  # Number of documents to retrieve (reduced for speed)
 
 # Retrieval quality threshold
-SIMILARITY_THRESHOLD = 0.55  # Minimum similarity score (0-1) to use a document
+SIMILARITY_THRESHOLD = 0.40  # Minimum similarity score (0-1) to use a document
 # Recommended values:
 # - 0.60-0.70: Strict (only very relevant documents)
 # - 0.50-0.60: Balanced (default, good for most cases)
 # - 0.40-0.50: Lenient (accepts more documents, may include less relevant ones)
+# Current: 0.40 - Lenient threshold to capture more relevant documents
 
 # Crawler configuration
 TUM_BASE_URL = "https://www.tum.de"

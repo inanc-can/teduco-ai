@@ -150,7 +150,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   experimental_attachments,
   toolInvocations,
   parts,
+
 }) => {
+  const router = useRouter()
   const files = useMemo(() => {
     return experimental_attachments?.map((attachment) => {
       const dataArray = dataUrlToUint8Array(attachment.url)
@@ -260,7 +262,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     return <ToolCall toolInvocations={toolInvocations} />
   }
 
-  const router = useRouter()
 
   return (
     <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
