@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@/lib/api-client'
 import { toast } from 'sonner'
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 
 // Query keys for cache management
 export const chatKeys = {
@@ -13,12 +15,43 @@ export const chatKeys = {
 }
 
 /**
+ * Hook to check if user is authenticated
+ */
+function useIsAuthenticated() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isChecking, setIsChecking] = useState(true)
+
+  useEffect(() => {
+    // Check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAuthenticated(!!session)
+      setIsChecking(false)
+    })
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(!!session)
+      setIsChecking(false)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return { isAuthenticated, isChecking }
+}
+
+/**
  * Fetch all chats for the current user
  */
 export function useChats() {
+  const { isAuthenticated, isChecking } = useIsAuthenticated()
+  
   return useQuery({
     queryKey: chatKeys.list(),
     queryFn: () => apiClient.getChats(),
+    enabled: isAuthenticated && !isChecking,
   })
 }
 

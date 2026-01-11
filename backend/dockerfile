@@ -1,5 +1,14 @@
 FROM python:3.11-slim
 
+# Install build dependencies for packages that need compilation
+# Also install system deps for EasyOCR (OpenCV dependencies)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
 # install deps first
 WORKDIR /app
 COPY requirements.txt .

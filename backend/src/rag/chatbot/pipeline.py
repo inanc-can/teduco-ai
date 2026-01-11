@@ -54,7 +54,7 @@ class RAGChatbotPipeline:
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         k: int = 3,
-        similarity_threshold: float = 0.55
+        similarity_threshold: float = 0.40
     ):
         """
         Initialize the RAG chatbot pipeline.
@@ -175,18 +175,21 @@ class RAGChatbotPipeline:
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a helpful university admissions advisor for the Technical University of Munich (TUM).
+            ("system", """You are a university admissions advisor for the Technical University of Munich (TUM).
 
-Answer questions about degree programs, admission requirements, and application processes using the context below.
+You must ONLY use information from the CONTEXT section below to answer questions. Do NOT use any external knowledge or make up information.
 
-INSTRUCTIONS:
-- Keep answers SHORT and CONCISE (2-3 sentences when possible)
-- Extract only the most relevant information from the context
-- Include key details (dates, deadlines, requirements) but be brief
-- Use bullet points for lists to save space
-- Only say "I don't have that information" if the context is empty
-- Use the conversation history to understand the user's context and refer back to previous topics when relevant
-- If the user asks a follow-up question, use the chat history to understand what they're referring to
+STRICT RULES:
+1. ONLY answer based on the retrieved context - never invent or assume information
+2. Keep answers SHORT and CONCISE (2-3 sentences when possible)
+3. Extract only the most relevant information from the context
+4. Include key details (dates, deadlines, requirements) but be brief
+5. Use bullet points for lists to save space
+6. If the context does not contain relevant information to answer the question, respond EXACTLY with:
+   "I don't have specific information about that in my knowledge base. Please contact TUM directly at study@tum.de for more detailed assistance."
+7. If the context section is empty, always redirect to study@tum.de
+8. Use the conversation history to understand the user's context and refer back to previous topics when relevant
+9. Never guess or provide unverified information
 
 === CONTEXT FROM DOCUMENTS ===
 {context}"""),
@@ -235,8 +238,8 @@ INSTRUCTIONS:
                 print("  - Need to rebuild vector store")
                 return []
             
-            # Filter documents by similarity threshold
-            filtered_docs = []
+            # Filter documents by similarity threshold and keep similarity for deterministic ordering
+            scored_filtered_docs = []
             for idx, (doc, score) in enumerate(results_with_scores, 1):
                 # Convert L2 distance to similarity (lower distance = higher similarity)
                 similarity = 1 / (1 + score)  # Convert distance to similarity score (0-1)
@@ -246,7 +249,7 @@ INSTRUCTIONS:
                 # Check if document meets threshold
                 if similarity >= self.similarity_threshold:
                     print(f" ✓ (Above threshold: {self.similarity_threshold})")
-                    filtered_docs.append(doc)
+                    scored_filtered_docs.append((doc, similarity))
                 else:
                     print(f" ✗ (Below threshold: {self.similarity_threshold}) - FILTERED OUT")
                 
@@ -256,7 +259,11 @@ INSTRUCTIONS:
                 print(f"      Key: {doc.metadata.get('key', 'N/A')}")
                 print(f"      Content Preview: {doc.page_content[:200]}...")
                 print()
-            
+
+            # Deterministic ordering by similarity (descending), with secondary key by metadata key
+            scored_filtered_docs.sort(key=lambda x: (-(x[1]), str(x[0].metadata.get('key', ''))))
+            filtered_docs = [doc for doc, _sim in scored_filtered_docs]
+
             print(f"[RETRIEVER DEBUG] After filtering: {len(filtered_docs)}/{len(results_with_scores)} documents meet threshold ({self.similarity_threshold})")
             
             if len(filtered_docs) == 0:
@@ -370,7 +377,7 @@ def initialize_rag_pipeline(
     vector_store_dir: Optional[str] = None,
     use_cache: bool = True,
     program_slugs: Optional[List[str]] = None,
-    similarity_threshold: float = 0.55
+    similarity_threshold: float = 0.40
 ) -> RAGChatbotPipeline:
     """
     Initialize the RAG pipeline (convenience function).
