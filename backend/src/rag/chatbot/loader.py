@@ -10,6 +10,7 @@ import sys
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import traceback
 from langchain_core.documents import Document
 
 # Add parent directories to path for imports
@@ -29,7 +30,10 @@ sys.path.insert(0, str(CHUNKER_DIR))  # Add chunker to path
 # The crawler imports like: from chunker.langchain_splitters import MarkdownSplitter
 # So we need to be in a context where 'chunker' and 'parser' are importable
 from parser.crawler import TumDegreeParser
-from chunker.langchain_splitters import MarkdownHeaderSplitter
+from chunker.langchain_splitters import (
+    MarkdownHeaderSplitter,
+    RecursiveTextSplitter
+)
 
 
 class DocumentLoader:
@@ -52,6 +56,7 @@ class DocumentLoader:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.crawler = TumDegreeParser(data_dir=str(self.data_dir))
+        self.university = "TUM"
         self.md_splitter = MarkdownHeaderSplitter()
         
     def load_from_crawler(
@@ -113,22 +118,23 @@ class DocumentLoader:
             List of Document objects
         """
         documents = []
-        
+        data = None
         try:
             # Run crawler
             self.crawler.load_by_slug(program_slug)
             self.crawler.parse(program_slug)
             data = self.crawler.to_dict()
             self.crawler.save_json(data, program_slug)
-            
+
             # Load the generated files
             program_dir = self.data_dir / program_slug
             docs = self._load_from_cache(program_dir, program_slug)
             documents.extend(docs)
-            
+
         except Exception as e:
+            traceback.print_exc()
             print(f"  [LOADER] ✗ Error crawling {program_slug}: {e}")
-        
+
         return documents
     
     def _load_from_cache(self, program_dir: Path, program_slug: str) -> List[Document]:
@@ -259,11 +265,16 @@ class DocumentLoader:
                 # Simple value - keywords already set above
                 content = f"Program: {program_name}\nSection: {section}\n{key}: {value}{keywords}"
             
+            # Parse degree, degree level information
+            degree, degree_level = self._parse_program_slug(program_slug)
             documents.append(
                 Document(
                     page_content=content,
                     metadata={
                         "source": program_slug,
+                        "university": self.university,
+                        "degree": degree,
+                        "degree_level": degree_level,
                         "type": "metadata",
                         "section": section,
                         "key": key,
@@ -303,13 +314,16 @@ class DocumentLoader:
             List of Document objects
         """
         documents = []
-        
+        degree, degree_level = self._parse_program_slug(program_slug)
         for header, content in md_chunks.items():
             documents.append(
                 Document(
                     page_content=content,
                     metadata={
                         "source": program_slug,
+                        "university": self.university,
+                        "degree": degree,
+                        "degree_level": degree_level,
                         "type": "aptitude_assessment",
                         "header": header,
                         "section": f"aptitude_assessment/{header}"
@@ -319,3 +333,73 @@ class DocumentLoader:
         
         return documents
 
+    def _parse_program_slug(self, program_slug: str):
+        """
+        Parse a hyphen-separated program slug into degree and level.
+
+        Args:
+            program_slug: Hyphen-separated slug (e.g. "informatics-master-of-science-msc").
+
+        Returns:
+            Tuple[str, Optional[str]]: `(degree, degree_level)` where `degree` is
+            the part before 'master'/'bachelor' (or the original slug if not found),
+            and `degree_level` is 'master', 'bachelor', or `None`.
+        """
+
+        parts = program_slug.split("-")
+        degree_level = None
+        degree = program_slug
+        for idx, part in enumerate(parts):
+            p = part.lower()
+            if p in ("master", "bachelor"):
+                degree_level = p
+                degree = "-".join(parts[:idx]) if idx > 0 else ""
+                break
+        return degree, degree_level
+
+
+def loaded_docs_to_chunks(documents: List[Document], chunk_size, chunk_overlap):
+    """
+    Split documents into character-based chunks while preserving short docs.
+
+    Args:
+        documents: List of `Document` objects to split or keep.
+        chunk_size: Maximum characters per chunk.
+        chunk_overlap: Number of overlapping characters between chunks.
+
+    Returns:
+        List[Document]: Flattened list of document chunks.
+    """
+
+    text_splitter = RecursiveTextSplitter(chunk_size, chunk_overlap)
+    all_chunks = []
+
+    for doc in documents:
+        # If document is already from markdown chunks, use as-is
+        if doc.metadata.get("type") == "aptitude_assessment":
+            # Already chunked by markdown splitter, just add to chunks
+            chunks = text_splitter.split_documents([doc])
+            all_chunks.extend(chunks)
+        else:
+            # For metadata/JSON content, only split if document is very long
+            # Most metadata documents are complete units and shouldn't be split
+            doc_length = len(doc.page_content)
+            doc_key = doc.metadata.get("key", "unknown")
+            
+            # Only split if document is significantly longer than chunk_size
+            # This preserves complete information for metadata documents
+            if doc_length > chunk_size * 2:  # Only split if > 3x chunk_size (1500+ chars)
+                # Document is long enough to warrant splitting
+                chunks = text_splitter.split_documents([doc])
+                all_chunks.extend(chunks)
+                if doc_key == "Application deadlines":
+                    print(f"      [RETRIEVER DEBUG] Split 'Application deadlines' into {len(chunks)} chunks")
+                    for i, chunk in enumerate(chunks):
+                        print(f"        Chunk {i+1}: {len(chunk.page_content)} chars - {chunk.page_content[:100]}...")
+            else:
+                # Keep document as a single chunk to preserve complete information
+                all_chunks.append(doc)
+                if doc_key == "Application deadlines":
+                    print(f"      [RETRIEVER DEBUG] Kept 'Application deadlines' as single chunk ({doc_length} chars)")
+                    print(f"        Preview: {doc.page_content[:200]}...")
+    return all_chunks

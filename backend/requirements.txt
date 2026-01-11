@@ -16,6 +16,7 @@ beautifulsoup4==4.14.2
 # --- Docling & OCR ---
 easyocr==1.7.2
 docling==2.63.0
+opencv-python-headless==4.7.0.72
 
 # --- Backend Web Framework / API ---
 fastapi>=0.111

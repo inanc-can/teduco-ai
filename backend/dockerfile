@@ -3,6 +3,12 @@ FROM python:3.11-slim
 # install deps first
 WORKDIR /app
 COPY requirements.txt .
+# install required dependencies for ocr and docling models
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir -r requirements.txt
 
 # copy only application source code

@@ -59,7 +59,7 @@ class TumDegreeParser:
         self.data_dir.mkdir(exist_ok=True)
         self.notify(f"{self.data_dir} created.")
         self.soup: Optional[bs4.BeautifulSoup] = None
-        self.pdf_parser = DoclingPDFParser(force_full_page_ocr=True)
+        self.pdf_parser = DoclingPDFParser(force_full_page_ocr=False)
         self.bluebox: Dict[str, Any] = {}
         self.accordion: Dict[str, Any] = {}
         self.md_splitter = MarkdownHeaderSplitter()
