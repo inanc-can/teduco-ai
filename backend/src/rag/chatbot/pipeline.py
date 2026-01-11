@@ -45,7 +45,7 @@ class RAGChatbotPipeline:
     
     def __init__(
         self,
-        data_dir: str = "backend/rag/data",
+        data_dir: str = "backend/rag_data",
         vector_store_dir: Optional[str] = None,
         model_name: str = "llama-3.1-8b-instant",
         program_slugs: Optional[List[str]] = None,
@@ -99,7 +99,7 @@ class RAGChatbotPipeline:
             k=k
         )
         
-        # Initialize pipeline
+        # Initialize pipeline 
         self._initialize_pipeline()
     
     def _initialize_pipeline(self):
@@ -107,10 +107,11 @@ class RAGChatbotPipeline:
         print("\n[PIPELINE] Initializing components...")
         
         # Step 1: Load documents
+
+        # TODO: Add supabase rpc integration for this section to find relatable chunks
         print("\n[1/3] Loading documents...")
-        documents = self.loader.load_from_crawler(
-            program_slugs=self.program_slugs,
-            use_cache=self.use_cache
+        documents = self.loader.load_from_local_dir(
+            program_slugs=self.program_slugs
         )
         
         if not documents:
@@ -373,7 +374,7 @@ STRICT RULES:
 
 
 def initialize_rag_pipeline(
-    data_dir: str = "backend/rag/data",
+    data_dir: str = "backend/rag_data",
     vector_store_dir: Optional[str] = None,
     use_cache: bool = True,
     program_slugs: Optional[List[str]] = None,

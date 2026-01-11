@@ -67,6 +67,7 @@ class RetrievalPipeline:
         # Initialize components
         self.embeddings = HuggingFaceEmbeddings(
             model_name=embedding_model,
+            cache_folder="/app/.hf_cache",
             encode_kwargs={
                 "normalize_embeddings": True  # VERY IMPORTANT for cosine similarity
             },

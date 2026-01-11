@@ -29,7 +29,8 @@ sys.path.insert(0, str(CHUNKER_DIR))  # Add chunker to path
 # Import using the same pattern as crawler.py
 # The crawler imports like: from chunker.langchain_splitters import MarkdownSplitter
 # So we need to be in a context where 'chunker' and 'parser' are importable
-from parser.crawler import TumDegreeParser
+
+# from parser.crawler import TumDegreeParser
 from chunker.langchain_splitters import (
     MarkdownHeaderSplitter,
     RecursiveTextSplitter
@@ -46,7 +47,7 @@ class DocumentLoader:
     3. Converts them into LangChain Document objects for the RAG pipeline
     """
     
-    def __init__(self, data_dir: str = "backend/rag/data"):
+    def __init__(self, data_dir: str = "backend/rag_data"):
         """
         Initialize the document loader.
         
@@ -54,22 +55,20 @@ class DocumentLoader:
             data_dir: Directory where crawled data is stored
         """
         self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.crawler = TumDegreeParser(data_dir=str(self.data_dir))
+        # self.data_dir.mkdir(parents=True, exist_ok=True)
+        # self.crawler = TumDegreeParser(data_dir=str(self.data_dir))
         self.university = "TUM"
         self.md_splitter = MarkdownHeaderSplitter()
-        
-    def load_from_crawler(
+    
+    def load_from_local_dir(
         self, 
         program_slugs: Optional[List[str]] = None,
-        use_cache: bool = True
-    ) -> List[Document]:
+    ):
         """
-        Load documents by running the crawler or loading from cache.
+        Load documents from local directory.
         
         Args:
-            program_slugs: List of program slugs to crawl. If None, uses default list.
-            use_cache: If True, loads from existing files instead of crawling
+            program_slugs: List of program slugs to load. If None, uses default list.
         
         Returns:
             List of Document objects ready for chunking and embedding
@@ -89,53 +88,91 @@ class DocumentLoader:
             ]
         
         print(f"\n[LOADER] Loading documents for {len(program_slugs)} programs...")
-        
         for slug in program_slugs:
             program_dir = self.data_dir / slug
-            
-            # If cache exists and use_cache is True, load from files
-            if use_cache and program_dir.exists():
-                print(f"  [LOADER] Loading cached data for: {slug}")
-                docs = self._load_from_cache(program_dir, slug)
-                documents.extend(docs)
-            else:
-                # Run crawler to fetch fresh data
-                print(f"  [LOADER] Crawling fresh data for: {slug}")
-                docs = self._crawl_and_load(slug)
-                documents.extend(docs)
-        
-        print(f"  [LOADER] ✓ Loaded {len(documents)} total documents")
-        return documents
-    
-    def _crawl_and_load(self, program_slug: str) -> List[Document]:
-        """
-        Crawl a program and convert to documents.
-        
-        Args:
-            program_slug: Program slug to crawl
-            
-        Returns:
-            List of Document objects
-        """
-        documents = []
-        data = None
-        try:
-            # Run crawler
-            self.crawler.load_by_slug(program_slug)
-            self.crawler.parse(program_slug)
-            data = self.crawler.to_dict()
-            self.crawler.save_json(data, program_slug)
-
-            # Load the generated files
-            program_dir = self.data_dir / program_slug
-            docs = self._load_from_cache(program_dir, program_slug)
+            docs = self._load_from_cache(program_dir, slug)
             documents.extend(docs)
-
-        except Exception as e:
-            traceback.print_exc()
-            print(f"  [LOADER] ✗ Error crawling {program_slug}: {e}")
-
+        
+        print(f"  [LOADER] ✓ Loaded {len(documents)} total document from local cache.")
         return documents
+        
+    # def load_from_crawler(
+    #     self, 
+    #     program_slugs: Optional[List[str]] = None,
+    #     use_cache: bool = True
+    # ) -> List[Document]:
+    #     """
+    #     Load documents by running the crawler or loading from cache.
+        
+    #     Args:
+    #         program_slugs: List of program slugs to crawl. If None, uses default list.
+    #         use_cache: If True, loads from existing files instead of crawling
+        
+    #     Returns:
+    #         List of Document objects ready for chunking and embedding
+    #     """
+    #     documents = []
+        
+    #     # Default program slugs if none provided
+    #     if program_slugs is None:
+    #         program_slugs = [
+    #             "informatics-master-of-science-msc",
+    #             "mathematics-master-of-science-msc",
+    #             "mathematics-in-data-science-master-of-science-msc",
+    #             "mathematics-in-science-and-engineering-master-of-science-msc",
+    #             "mathematical-finance-and-actuarial-science-master-of-science-msc",
+    #             "informatics-games-engineering-master-of-science-msc",
+    #             "informatics-bachelor-of-science-bsc"
+    #         ]
+        
+    #     print(f"\n[LOADER] Loading documents for {len(program_slugs)} programs...")
+        
+    #     for slug in program_slugs:
+    #         program_dir = self.data_dir / slug
+            
+    #         # If cache exists and use_cache is True, load from files
+    #         if use_cache and program_dir.exists():
+    #             print(f"  [LOADER] Loading cached data for: {slug}")
+    #             docs = self._load_from_cache(program_dir, slug)
+    #             documents.extend(docs)
+    #         else:
+    #             # Run crawler to fetch fresh data
+    #             print(f"  [LOADER] Crawling fresh data for: {slug}")
+    #             docs = self._crawl_and_load(slug)
+    #             documents.extend(docs)
+        
+    #     print(f"  [LOADER] ✓ Loaded {len(documents)} total documents")
+    #     return documents
+    
+    # def _crawl_and_load(self, program_slug: str) -> List[Document]:
+    #     """
+    #     Crawl a program and convert to documents.
+        
+    #     Args:
+    #         program_slug: Program slug to crawl
+            
+    #     Returns:
+    #         List of Document objects
+    #     """
+    #     documents = []
+    #     data = None
+    #     try:
+    #         # Run crawler
+    #         self.crawler.load_by_slug(program_slug)
+    #         self.crawler.parse(program_slug)
+    #         data = self.crawler.to_dict()
+    #         self.crawler.save_json(data, program_slug)
+
+    #         # Load the generated files
+    #         program_dir = self.data_dir / program_slug
+    #         docs = self._load_from_cache(program_dir, program_slug)
+    #         documents.extend(docs)
+
+    #     except Exception as e:
+    #         traceback.print_exc()
+    #         print(f"  [LOADER] ✗ Error crawling {program_slug}: {e}")
+
+    #     return documents
     
     def _load_from_cache(self, program_dir: Path, program_slug: str) -> List[Document]:
         """

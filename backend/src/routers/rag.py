@@ -20,7 +20,7 @@ print("TEDUCO API - Initializing RAG Chatbot")
 print("="*70)
 
 # Initialize RAG pipeline
-RAG_DATA_DIR = Path(__file__).parent.parent / "rag" / "data"
+RAG_DATA_DIR = Path("/app/rag_data")
 RAG_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 try:

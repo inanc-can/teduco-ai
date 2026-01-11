@@ -301,7 +301,7 @@ def scrape_all(program_slugs):
     parser = argparse.ArgumentParser(description="Run crawler")
     parser.add_argument("--data-dir", help="Path to crawler data dir.")
     args = parser.parse_args()
-    data_dir = args.data_dir or os.getenv("DATA_DIR") or "backend/src/rag/data"
+    data_dir = args.data_dir or os.getenv("DATA_DIR") or "backend/rag_data"
     parser = TumDegreeParser(data_dir=data_dir)
     for ps in program_slugs:
         parser.load_by_slug(ps)

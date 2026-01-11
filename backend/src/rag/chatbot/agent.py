@@ -145,6 +145,8 @@ class Agent:
             traceback.print_exc()
             return {}
 
+    # TODO: this part will be run by an enpoint of docling parser which will
+    # rake pdf_bytes and return markdown str.
     def _parse_pdf_content(self, pdf_bytes: bytes, filename: str) -> Optional[str]:
         """Parse PDF content to text using Docling.
         

@@ -8,7 +8,6 @@ background (FastAPI BackgroundTasks) so the request returns immediately.
 This module does not change any existing functions; it only calls them.
 """
 import tempfile
-import shutil
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -21,16 +20,16 @@ from rag.chatbot.db_ops import (
     bulk_insert,
     retrieve_chunks
 )
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 embedding_model = HuggingFaceEmbeddings(
     model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+    cache_folder="/app/.hf_cache",
     encode_kwargs={
         "normalize_embeddings": True  # VERY IMPORTANT for cosine similarity
     },
     model_kwargs={'device': 'cpu'}
 )
     
-
 
 router = APIRouter(
     prefix="/rag-data",
@@ -40,7 +39,6 @@ router = APIRouter(
 
 class CrawlIngestRequest(BaseModel):
     program_slugs: Optional[List[str]] = None
-    use_cache: bool = True
     batch_size: int = 256
     table: str = "rag_uni_degree_documents"
 
@@ -48,17 +46,15 @@ class CrawlIngestRequest(BaseModel):
 def _background_crawl_and_insert(
     data_dir,
     program_slugs: Optional[List[str]],
-    use_cache: bool,
     batch_size: int = 256,
     table: str = "rag_uni_degree_documents",
     
 ):
     """Background worker: load docs, create embeddings, and bulk-insert them."""
     try:
-        use_cache = True
         loader = DocumentLoader(data_dir=data_dir)
-        documents = loader.load_from_crawler(
-            program_slugs=program_slugs, use_cache=use_cache)
+        documents = loader.load_from_local_dir(
+            program_slugs=program_slugs)
         chunks = loaded_docs_to_chunks(
             documents,
             chunk_size=500,
@@ -80,15 +76,14 @@ async def crawl_and_bulk_insert(request: CrawlIngestRequest, background_tasks: B
     This is intended for manual/occasional runs (e.g. once every few months).
     The endpoint returns immediately while the heavy work runs in the background.
     """
-    # Temporary data_dir
-    tmp_file = tempfile.mkdtemp(prefix="rag_ingest_")
-
+    # # Temporary data_dir
+    # data_dir = tempfile.mkdtemp(prefix="rag_ingest_")
+    data_dir = "/app/rag_data"
     # Default: background task as before
     background_tasks.add_task(
         _background_crawl_and_insert,
-        tmp_file,
+        data_dir,
         request.program_slugs,
-        request.use_cache,
         request.batch_size,
         request.table,
     )

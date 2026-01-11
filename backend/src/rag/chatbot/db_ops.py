@@ -74,6 +74,7 @@ def bulk_insert(docs: List[Document], embeddings: List[List[float]], batch_size:
     return total_inserted
 
 # ----------HYBRID RETRIEVAL ----------
+# TODO: use/refactor this function for retrieval
 def retrieve_chunks(query: str, query_embedding: List[float], top_k: int = 3):
     """
     Retrieve top-k related chunks using the hybrid retrieval RPC.
