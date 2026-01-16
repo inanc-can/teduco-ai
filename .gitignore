@@ -20,9 +20,12 @@ pip-wheel-metadata/
 # -------------------------------------------------------------------
 # Project data outputs
 # -------------------------------------------------------------------
-data/                   
-*.json                     
-*.log                     
+# data/                   
+# *.json                     
+# *.log      
+vector_store/
+*.pkl        
+*.faiss   
 
 # -------------------------------------------------------------------
 # Virtual environments
@@ -64,3 +67,6 @@ Thumbs.db
 __snapshots__/            
 .cache/
 .temp
+
+/src/chats/
+/src/rag/data

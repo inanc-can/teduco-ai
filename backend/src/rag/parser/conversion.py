@@ -11,6 +11,7 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 from pathlib import Path
 from io import BytesIO
 import logging
+import traceback
 from typing import Optional, Union, cast
 
 # Configure logging
@@ -43,7 +44,7 @@ class DoclingPDFParser:
             do_ocr=True,
             ocr_options=EasyOcrOptions(
                 force_full_page_ocr=self.force_full_page_ocr,
-                lang=["de", "en"]
+                lang=["de"]
             ),
             accelerator_options=AcceleratorOptions(
                 device=AcceleratorDevice.AUTO
@@ -103,9 +104,9 @@ class DoclingPDFParser:
                 conversion = self.doc_converter.convert(
                     cast(Union[Path, str, DocumentStream], source))
         except Exception as e:
-            logging.exception("Failed to convert document.")
-            raise RuntimeError(f"Document conversion failed for \
-                        {getattr(source, 'name', source)}: {e}") from e
+            traceback.print_exc()
+            logging.error("Failed to convert document: %s", getattr(source, 'name', source))
+            raise RuntimeError(f"Document conversion failed for {getattr(source, 'name', source)}: {e}") from e
         logging.info("Document conversion completed.")
         return conversion
 
@@ -134,16 +135,17 @@ class DoclingPDFParser:
         try:
             md = conversion.document.export_to_markdown()
         except Exception as e:
-            logging.exception("Failed to export conversion to markdown.")
-            raise RuntimeError(f"Export to markdown failed for input \
-                {getattr(conversion, 'input', None)}: {e}") from e
+            traceback.print_exc()
+            logging.error("Failed to export conversion to markdown: %s", getattr(conversion, 'input', None))
+            raise RuntimeError(f"Export to markdown failed for input {getattr(conversion, 'input', None)}: {e}") from e
 
         if out_file_path:
             out_file = out_file_path / f"{file_name}.md"
             try:
                 self.export_to_markdown(md, out_file)
             except Exception as e:
-                logging.exception("Failed to write markdown to disk.")
+                traceback.print_exc()
+                logging.error("Failed to write markdown to disk: %s", out_file)
                 raise RuntimeError(f"Writing markdown failed for {out_file}: {e}") from e
         logging.info("Document exported to markdown.")
         return md
@@ -164,7 +166,8 @@ class DoclingPDFParser:
             with out_file_path.open("w", encoding="utf-8") as fp:
                 fp.write(md)
         except Exception as e:
-            logging.exception("Failed to persist markdown file.")
+            traceback.print_exc()
+            logging.error("Failed to persist markdown file: %s", out_file_path)
             raise RuntimeError(f"Failed to write markdown to {out_file_path}: {e}") from e
         logging.info(f"Markdown written to {out_file_path}")
         return out_file_path

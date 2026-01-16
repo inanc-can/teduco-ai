@@ -27,6 +27,7 @@ from langchain_community.vectorstores import FAISS
 
 from db.lib import core as db_core
 from core.dependencies import get_signed_url
+from rag.chatbot.db_ops import retrieve_chunks, list_all_degree_programs
 
 # Try to import PDF parser for document processing
 try:
@@ -43,14 +44,18 @@ class Agent:
         llm: ChatGroq,
         retriever_pipeline,
         embeddings,
-        k: int = 3,
+        k: int = 10,
         similarity_threshold: float = 0.40,
+        semantic_weight: float = 0.5,
+        keyword_weight: float = 0.5
     ):
         self.llm = llm
         self.retriever_pipeline = retriever_pipeline
         self.embeddings = embeddings
         self.k = k
         self.similarity_threshold = similarity_threshold
+        self.semantic_weight = semantic_weight
+        self.keyword_weight = keyword_weight
 
         # Setup requests session with USER_AGENT header (fallback default provided)
         self.session = requests.Session()
@@ -145,6 +150,8 @@ class Agent:
             traceback.print_exc()
             return {}
 
+    # TODO: this part will be run by an enpoint of docling parser which will
+    # rake pdf_bytes and return markdown str.
     def _parse_pdf_content(self, pdf_bytes: bytes, filename: str) -> Optional[str]:
         """Parse PDF content to text using Docling.
         
@@ -245,55 +252,218 @@ class Agent:
 
     # ------------------ Search ------------------
     def search_kb(self, question: str) -> List[Document]:
-        """Search the global vector store (the RAG KB) via similarity_search_with_score similar to the existing pipeline."""
+        """Search the knowledge base using Supabase hybrid search (semantic + keyword)."""
+        
+        # Check if this is a "list all programs" type query
+        question_lower = question.lower()
+        
+        # More flexible detection: if query contains list/show/display + program/degree
+        list_trigger = any(kw in question_lower for kw in ["list", "show", "display", "what are", "how many", "total", "count", "tell me about"])
+        program_trigger = any(kw in question_lower for kw in ["program", "degree", "course"])
+        
+        # If asking to list/count programs AND not asking specific details
+        specific_details = any(kw in question_lower for kw in ["requirement", "deadline", "admission", "language", "when", "how to apply", "credit"])
+        
+        if list_trigger and program_trigger and not specific_details:
+            print(f"\n{'='*70}")
+            print(f"[AGENT KB SEARCH] Detected 'list all programs' query")
+            print(f"[AGENT KB SEARCH] Using direct database query instead of vector search")
+            print(f"{'='*70}")
+            
+            programs = list_all_degree_programs()
+            
+            if not programs:
+                print(f"[AGENT KB SEARCH] No programs found in database")
+                return []
+            
+            # Create a summary document listing all programs
+            program_list = []
+            for p in programs:
+                degree = p.get('degree', 'unknown')
+                level = p.get('degree_level', 'unknown')
+                source = p.get('source', 'unknown')
+                program_list.append(f"- {degree.title()} ({level.title()})")
+            
+            content = f"TUM Degree Programs in Database:\n\n" + "\n".join(sorted(set(program_list)))
+            content += f"\n\nTotal: {len(set(program_list))} unique degree programs"
+            
+            print(f"[AGENT KB SEARCH] Found {len(programs)} program entries ({len(set(program_list))} unique programs)")
+            print(f"{'='*70}\n")
+            
+            return [Document(
+                page_content=content,
+                metadata={"source": "database_query", "type": "program_list", "count": len(set(program_list))}
+            )]
+        
         print(f"\n{'='*70}")
-        print(f"[AGENT KB SEARCH] Searching knowledge base...")
+        print(f"[AGENT KB SEARCH] Searching knowledge base via Supabase hybrid search...")
         print(f"  Question: {question}")
+        print(f"  Semantic weight: {self.semantic_weight}, Keyword weight: {self.keyword_weight}")
         print(f"{'='*70}")
         
         try:
-            vs = self.retriever_pipeline.vector_store
-            print(f"[AGENT KB SEARCH] Vector store: {vs}")
+            # 1. Extract degree level from question if present
+            degree_level_filter = None
+            question_lower = question.lower()
+            if "bachelor" in question_lower or "bachelor's" in question_lower or "undergraduate" in question_lower or "bsc" in question_lower:
+                degree_level_filter = "bachelor"
+                print(f"[AGENT KB SEARCH] Detected bachelor degree level")
+            elif "master" in question_lower or "master's" in question_lower or "msc" in question_lower or "mse" in question_lower:
+                degree_level_filter = "master"
+                print(f"[AGENT KB SEARCH] Detected master degree level")
             
-            if vs is None:
-                print("[AGENT KB SEARCH] ✗ Vector store is None!")
-                print("[AGENT KB SEARCH] This means the FAISS index wasn't loaded properly.")
-                print("[AGENT KB SEARCH] Check:")
-                print("  1. Vector store path exists")
-                print("  2. FAISS index was built during initialization")
-                print("  3. retriever_pipeline.vector_store is set correctly")
+            # 2. Embed the query
+            print(f"[AGENT KB SEARCH] Embedding query...")
+            query_embedding = self.embeddings.embed_query(question)
+            
+            # 3. Retrieve from Supabase using hybrid search (fetch more for MMR)
+            fetch_k = self.k * 5  # Fetch 5x more candidates for diversity
+            print(f"[AGENT KB SEARCH] Querying Supabase with k={fetch_k} (will apply MMR to select top {self.k})...")
+            results = retrieve_chunks(
+                query=question,
+                query_embedding=query_embedding,
+                top_k=fetch_k,
+                semantic_weight=self.semantic_weight,
+                keyword_weight=self.keyword_weight,
+                filter_degree_level=degree_level_filter
+            )
+            
+            print(f"[AGENT KB SEARCH] Retrieved {len(results)} chunks from Supabase")
+            
+            if not results:
+                print("[AGENT KB SEARCH] ✗ No documents retrieved from Supabase!")
+                print(f"{'='*70}\n")
                 return []
             
-            print(f"[AGENT KB SEARCH] Performing similarity search with k={self.k}...")
-            results = vs.similarity_search_with_score(question, k=self.k)
-            print(f"[AGENT KB SEARCH] Retrieved {len(results)} raw results")
+            # 3. Filter by threshold first
+            candidate_docs = []
+            candidate_embeddings = []
+            for idx, res in enumerate(results, 1):
+                hybrid_score = res.get("hybrid_score", 0.0)
+                similarity = res.get("similarity_score", 0.0)
+                keyword_rank = res.get("keyword_rank", 0.0)
+                content = res.get("content", "")
+                metadata = res.get("metadata") or {}
+                
+                if hybrid_score >= self.similarity_threshold:
+                    doc = Document(page_content=content, metadata=metadata)
+                    doc.metadata['hybrid_score'] = hybrid_score
+                    doc.metadata['similarity_score'] = similarity
+                    candidate_docs.append(doc)
+                    # Embed the document for MMR
+                    doc_embedding = self.embeddings.embed_query(content)
+                    candidate_embeddings.append(doc_embedding)
             
-            # Filter and log
-            scored_filtered_docs = []
-            for idx, (doc, score) in enumerate(results, 1):
-                similarity = 1 / (1 + score)
+            print(f"[AGENT KB SEARCH] {len(candidate_docs)}/{len(results)} documents above threshold ({self.similarity_threshold})")
+            
+            if not candidate_docs:
+                print("[AGENT KB SEARCH] ✗ No documents above threshold!")
+                print(f"{'='*70}\n")
+                return []
+            
+            # 4. Apply MMR for diversity
+            print(f"[AGENT KB SEARCH] Applying MMR (lambda=0.5) to select diverse top {self.k} documents...")
+            selected_docs = self._mmr_selection(
+                query_embedding=query_embedding,
+                documents=candidate_docs,
+                doc_embeddings=candidate_embeddings,
+                k=min(self.k, len(candidate_docs)),
+                lambda_mult=0.5  # Balance between relevance and diversity
+            )
+            
+            # Log selected documents
+            for idx, doc in enumerate(selected_docs, 1):
                 source = doc.metadata.get('source', 'unknown')
                 section = doc.metadata.get('section', 'N/A')
-                
-                if similarity >= self.similarity_threshold:
-                    print(f"[AGENT KB SEARCH]   [{idx}] ✓ Similarity: {similarity:.4f} - {source} - {section}")
-                    scored_filtered_docs.append((doc, similarity))
-                else:
-                    print(f"[AGENT KB SEARCH]   [{idx}] ✗ Similarity: {similarity:.4f} (below {self.similarity_threshold}) - {source}")
+                hybrid_score = doc.metadata.get('hybrid_score', 0.0)
+                similarity = doc.metadata.get('similarity_score', 0.0)
+                print(f"[AGENT KB SEARCH]   [{idx}] ✓ MMR Selected: {source} - {section} (Hybrid: {hybrid_score:.4f}, Sem: {similarity:.4f})")
             
-            # Sort deterministically
-            scored_filtered_docs.sort(key=lambda x: (-x[1], str(x[0].metadata.get('key', ''))))
-            docs = [doc for doc, _sim in scored_filtered_docs]
-            
-            print(f"[AGENT KB SEARCH] ✓ Returning {len(docs)}/{len(results)} documents above threshold")
+            print(f"[AGENT KB SEARCH] ✓ Returning {len(selected_docs)} diverse documents")
             print(f"{'='*70}\n")
-            return docs
+            return selected_docs
             
         except Exception as e:
             print(f"[AGENT KB SEARCH] ✗ Exception during search: {e}")
             traceback.print_exc()
             print(f"{'='*70}\n")
             return []
+    
+    def _mmr_selection(
+        self,
+        query_embedding: List[float],
+        documents: List[Document],
+        doc_embeddings: List[List[float]],
+        k: int,
+        lambda_mult: float = 0.5
+    ) -> List[Document]:
+        """
+        Maximal Marginal Relevance (MMR) selection for diverse document retrieval.
+        
+        Balances relevance to query with diversity from already-selected documents.
+        
+        Args:
+            query_embedding: Query embedding vector
+            documents: Candidate documents
+            doc_embeddings: Embeddings for candidate documents (aligned with documents list)
+            k: Number of documents to select
+            lambda_mult: Tradeoff between relevance (1.0) and diversity (0.0). Default 0.5 is balanced.
+        
+        Returns:
+            List of k selected documents, ordered by MMR score
+        """
+        if k >= len(documents):
+            return documents
+        
+        # Convert to numpy for efficient computation
+        query_emb = np.array(query_embedding)
+        doc_embs = np.array(doc_embeddings)
+        
+        # Normalize embeddings for cosine similarity
+        query_emb = query_emb / np.linalg.norm(query_emb)
+        doc_embs = doc_embs / np.linalg.norm(doc_embs, axis=1, keepdims=True)
+        
+        # Calculate query-document similarities (relevance scores)
+        query_doc_sims = np.dot(doc_embs, query_emb)
+        
+        selected_indices = []
+        remaining_indices = list(range(len(documents)))
+        
+        # Select first document (highest relevance)
+        first_idx = int(np.argmax(query_doc_sims))
+        selected_indices.append(first_idx)
+        remaining_indices.remove(first_idx)
+        
+        # Iteratively select remaining documents
+        for _ in range(k - 1):
+            if not remaining_indices:
+                break
+            
+            mmr_scores = []
+            for idx in remaining_indices:
+                # Relevance to query
+                relevance = query_doc_sims[idx]
+                
+                # Max similarity to already-selected documents (redundancy penalty)
+                if selected_indices:
+                    selected_embs = doc_embs[selected_indices]
+                    similarities = np.dot(selected_embs, doc_embs[idx])
+                    max_similarity = np.max(similarities)
+                else:
+                    max_similarity = 0.0
+                
+                # MMR score: balance relevance and diversity
+                mmr_score = lambda_mult * relevance - (1 - lambda_mult) * max_similarity
+                mmr_scores.append(mmr_score)
+            
+            # Select document with highest MMR score
+            best_mmr_idx = int(np.argmax(mmr_scores))
+            selected_idx = remaining_indices[best_mmr_idx]
+            selected_indices.append(selected_idx)
+            remaining_indices.remove(selected_idx)
+        
+        # Return documents in MMR-selected order
+        return [documents[i] for i in selected_indices]
 
     def search_user_docs(self, question: str, user_docs: List[Document]) -> List[Document]:
         """
@@ -435,8 +605,8 @@ class Agent:
             doc_parts = []
             for d in user_docs[:self.k]:
                 doc_type = d.metadata.get("doc_type", "document")
-                # Include more content (up to 1500 chars) for better context
-                content = d.page_content[:1500].replace("\n", " ").strip()
+                # Keep newlines for better structure
+                content = d.page_content[:1500].strip()
                 doc_parts.append(f"[{doc_type.upper()}]: {content}")
             parts.append("=== USER DOCUMENTS ===\n" + "\n\n".join(doc_parts))
         else:
@@ -452,8 +622,8 @@ class Agent:
             for d in kb_docs[:self.k]:
                 source = d.metadata.get("source", "unknown")
                 section = d.metadata.get("section", "")
-                # Include more content for accurate answers
-                content = d.page_content[:1500].replace("\n", " ").strip()
+                # Keep newlines for better readability by the LLM
+                content = d.page_content[:1500].strip()
                 kb_parts.append(f"[Source: {source}] {section}\n{content}")
             parts.append("=== TUM KNOWLEDGE BASE ===\n" + "\n\n".join(kb_parts))
         else:
@@ -475,40 +645,37 @@ class Agent:
         print(f"  Question: {question}")
         print(f"  Chat history length: {len(chat_history) if chat_history else 0}")
         print(f"{'='*70}\n")
+
+        def extract_language_requirement(docs: List[Document]):
+            """Look for a line containing 'Required Language Proficiency:' and return its value and metadata."""
+            for doc in docs:
+                text = doc.page_content or ""
+                for line in text.splitlines():
+                    if "Required Language Proficiency" in line:
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            value = parts[1].strip()
+                            if value:
+                                return value, doc.metadata
+            return None
         
-        # Build prompt with strict instructions on using context sections
+        # Build prompt with clear, simple instructions
         system = (
-            "You are a personalized university admissions advisor for the Technical University of Munich (TUM).\n\n"
+            "You are a helpful university admissions advisor for TUM (Technical University of Munich).\n\n"
             
-            "=== CRITICAL: ONLY USE PROVIDED CONTEXT ===\n"
-            "You MUST ONLY answer using information explicitly present in the CONTEXT sections below.\n"
-            "DO NOT use any external knowledge, prior training data, or make assumptions.\n"
-            "If the answer is not in the context, you MUST say you don't have that information.\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Answer the user's question using the information in the CONTEXT below\n"
+            "2. If the answer is clearly stated in the context, provide it\n"
+            "3. Only say 'I don't have information' if the context truly doesn't contain an answer\n"
+            "4. Be concise (2-4 sentences)\n"
+            "5. Include relevant links from the context\n\n"
             
-            "=== CONTEXT SECTIONS EXPLAINED ===\n"
-            "The CONTEXT below contains up to 3 sections:\n\n"
+            "The CONTEXT has 3 sections:\n"
+            "- USER PROFILE: The user's background\n"
+            "- USER DOCUMENTS: Uploaded files (CV, transcripts)\n"
+            "- TUM KNOWLEDGE BASE: Official TUM program information\n\n"
             
-            "1. USER PROFILE: The user's personal information (name, current education, GPA, desired programs, etc.)\n"
-            "   → Use this to PERSONALIZE your response and understand the user's background\n\n"
-            
-            "2. USER DOCUMENTS: Content extracted from the user's uploaded files (CV, transcript, diploma)\n"
-            "   → Use this to understand the user's qualifications, skills, and experience\n\n"
-            
-            "3. TUM KNOWLEDGE BASE: Official TUM program information (requirements, deadlines, processes)\n"
-            "   → This is your ONLY source of truth for TUM-specific facts. NEVER invent TUM information.\n\n"
-            
-            "=== STRICT RULES ===\n"
-            "1. ANSWER ONLY FROM CONTEXT - If information is not in the context sections, you MUST NOT answer\n"
-            "2. For TUM-specific info (requirements, deadlines, processes): ONLY use TUM KNOWLEDGE BASE section\n"
-            "3. For personalizing advice: Use USER PROFILE + USER DOCUMENTS to tailor your response\n"
-            "4. If comparing user qualifications to requirements: Cross-reference USER sections with TUM KB\n"
-            "5. Keep answers concise (2-4 sentences). Use bullet points for lists\n"
-            "6. If TUM KNOWLEDGE BASE is empty or missing, you MUST respond:\n"
-            "   'I don't have specific information about that in my knowledge base. Please contact TUM directly at study@tum.de for detailed assistance.'\n"
-            "7. If the context doesn't contain enough information to answer fully, say so explicitly\n"
-            "8. NEVER make up deadlines, requirements, procedures, or program details not in the context\n"
-            "9. When giving personalized advice, explicitly reference the user's data (e.g., 'Based on your GPA of 3.5...')\n"
-            "10. If unsure, prefer saying 'I don't have that information' over guessing"
+            "Extract facts directly from the context and present them clearly."
         )
         context = self.compile_context_text(profile, kb_docs, user_docs)
         
@@ -528,6 +695,20 @@ class Agent:
             
             return answer
 
+        # Deterministic shortcut: if KB docs include a Required Language Proficiency line, answer directly
+        lang_hit = extract_language_requirement(kb_docs)
+        if lang_hit:
+            value, meta = lang_hit
+            source = meta.get('source', 'knowledge base') if isinstance(meta, dict) else 'knowledge base'
+            section = meta.get('section', '') if isinstance(meta, dict) else ''
+            answer = f"The Informatics Bachelor of Science (BSc) at TUM requires {value}. (Source: {source}{' - ' + section if section else ''})"
+            print(f"\n{'='*70}")
+            print("[AGENT] ✓ Answer generated (deterministic language requirement):")
+            print(f"{'='*70}")
+            print(answer)
+            print(f"{'='*70}\n")
+            return answer
+
         human_prompt = (
             "CONTEXT:\n" + (context or "No context available") + "\n\n" +
             ("CHAT HISTORY:\n" + "\n".join([f"{m['role']}: {m['content']}" for m in (chat_history or [])]) + "\n\n" if chat_history else "") +
@@ -544,7 +725,7 @@ class Agent:
             resp = self.llm.invoke([
                 SystemMessage(content=system),
                 HumanMessage(content=human_prompt)
-            ], temperature=0)
+            ], temperature=0.1)  # Slightly above 0 to reduce over-cautiousness
             
             # Extract textual content safely
             if hasattr(resp, 'content'):

@@ -19,6 +19,7 @@ from routers.profile import router as profile_router
 from routers.documents import router as documents_router
 from routers.chats import router as chats_router, set_rag_pipeline
 from routers.rag import router as rag_router, get_rag_pipeline, is_rag_ready
+from routers.rag_data_ingestions import router as rag_data_router
 
 # ============================================================================
 # APPLICATION SETUP
@@ -57,6 +58,7 @@ app.include_router(profile_router)
 app.include_router(documents_router)
 app.include_router(chats_router)
 app.include_router(rag_router)
+app.include_router(rag_data_router)
 
 # Share RAG pipeline with chats router
 set_rag_pipeline(get_rag_pipeline())
