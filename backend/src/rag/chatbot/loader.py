@@ -256,6 +256,8 @@ class DocumentLoader:
                 keywords = "\n(Admission requirements, entry requirements)"
             elif "credit" in key.lower() or "ects" in key.lower():
                 keywords = "\n(ECTS credits, credit points, course credits, total credits required)"
+            elif "language" in key.lower() or "proficiency" in key.lower():
+                keywords = "\n(Language requirements, language proficiency, German requirement, English requirement, language certificate, language test)"
             
             # Format the content to be more searchable
             if isinstance(value, str) and len(value) > 50:

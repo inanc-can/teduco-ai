@@ -7,6 +7,7 @@ Uses the chunker components to process documents before embedding.
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 from langchain_core.documents import Document
@@ -48,7 +49,7 @@ class RetrievalPipeline:
         embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        k: int = 3
+        k: int = 10
     ):
         """
         Initialize the retrieval pipeline.
@@ -65,6 +66,10 @@ class RetrievalPipeline:
         self.k = k
         
         # Initialize components
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER] Loading embedding model: {embedding_model}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER] This may take 30-120 seconds on first run (downloading model)...")
+        start_time = datetime.now()
+        
         self.embeddings = HuggingFaceEmbeddings(
             model_name=embedding_model,
             cache_folder="/app/.hf_cache",
@@ -73,6 +78,9 @@ class RetrievalPipeline:
             },
             model_kwargs={'device': 'cpu'}
         )
+        
+        elapsed = (datetime.now() - start_time).total_seconds()
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER] ✓ Embedding model loaded in {elapsed:.2f}s")
         # self.text_splitter = RecursiveTextSplitter()
         self.text_splitter = RecursiveTextSplitter(
             chunk_size=chunk_size,

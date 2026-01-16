@@ -2,6 +2,7 @@
 RAG Chatbot router - standalone RAG endpoint with local storage.
 """
 
+from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pathlib import Path
 from rag.models import ChatRequest, ChatResponse
@@ -12,11 +13,15 @@ router = APIRouter(
     tags=["rag"]
 )
 
+def get_timestamp() -> str:
+    """Get current timestamp in YYYY-MM-DD HH:MM:SS format."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 # ============================================================================
 # RAG CHATBOT INITIALIZATION
 # ============================================================================
 print("\n" + "="*70)
-print("TEDUCO API - Initializing RAG Chatbot")
+print(f"[{get_timestamp()}] TEDUCO API - Initializing RAG Chatbot")
 print("="*70)
 
 # Initialize RAG pipeline
@@ -24,17 +29,17 @@ RAG_DATA_DIR = Path("/app/rag_data")
 RAG_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 try:
-    print("\n[STARTUP] Initializing RAG pipeline...")
+    print(f"\n[{get_timestamp()}] [STARTUP] Initializing RAG pipeline...")
     rag_pipeline = initialize_rag_pipeline(
         data_dir=str(RAG_DATA_DIR),
         use_cache=True
     )
-    print("[STARTUP] ✓ RAG pipeline initialized")
+    print(f"[{get_timestamp()}] [STARTUP] ✓ RAG pipeline initialized")
 except Exception as e:
-    print(f"\n[ERROR] Failed to initialize RAG pipeline: {e}")
-    print("\nMake sure:")
-    print("1. GROQ_API_KEY is set in .env file")
-    print("2. Run the crawler first: python -m rag.parser.crawler")
+    print(f"\n[{get_timestamp()}] [ERROR] Failed to initialize RAG pipeline: {e}")
+    print(f"[{get_timestamp()}] Make sure:")
+    print(f"[{get_timestamp()}] 1. GROQ_API_KEY is set in .env file")
+    print(f"[{get_timestamp()}] 2. Run the crawler first: python -m rag.parser.crawler")
     rag_pipeline = None  # Allow API to start even if RAG fails
 
 # Initialize chat history storage for standalone /chat endpoint
@@ -116,7 +121,7 @@ async def chat(request: ChatRequest, http_request: Request):
                 })
         
         # Get answer from RAG pipeline (agentic if user available) with chat history
-        print(f"[RAG] Querying RAG pipeline with {len(chat_history)} history messages...")
+        print(f"[{get_timestamp()}] [RAG] Querying RAG pipeline with {len(chat_history)} history messages...")
         # Try to get optional user id from Authorization header; keep behavior unchanged for unauthenticated calls
         from core.dependencies import get_optional_current_user
         try:

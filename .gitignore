@@ -67,3 +67,6 @@ Thumbs.db
 __snapshots__/            
 .cache/
 .temp
+
+/src/chats/
+/src/rag/data

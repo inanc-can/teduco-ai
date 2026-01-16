@@ -7,8 +7,10 @@ into a complete RAG pipeline.
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Dict
+from langchain_core.documents import Document
 from langchain_core.prompts import PromptTemplate, ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
@@ -27,6 +29,7 @@ sys.path.insert(0, str(RAG_DIR))
 
 from rag.chatbot.loader import DocumentLoader
 from rag.chatbot.retriever import RetrievalPipeline
+from rag.chatbot.db_ops import retrieve_chunks
 
 # Load environment variables
 load_dotenv()
@@ -53,8 +56,10 @@ class RAGChatbotPipeline:
         embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        k: int = 3,
-        similarity_threshold: float = 0.40
+        k: int = 10,
+        similarity_threshold: float = 0.40,
+        semantic_weight: float = 0.7,
+        keyword_weight: float = 0.3
     ):
         """
         Initialize the RAG chatbot pipeline.
@@ -69,10 +74,12 @@ class RAGChatbotPipeline:
             chunk_size: Text chunk size
             chunk_overlap: Chunk overlap
             k: Number of documents to retrieve
-            similarity_threshold: Minimum similarity score (0-1) to use a document.
+            similarity_threshold: Minimum hybrid score (0-1) to use a document.
                                  Documents below this threshold are filtered out.
-                                 Default: 0.55 (balanced). 
-                                 Recommended: 0.50-0.60 for most cases.
+                                 Default: 0.40 (balanced). 
+                                 Recommended: 0.35-0.55 for most cases.
+            semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.7)
+            keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.3)
         """
         self.data_dir = data_dir
         self.vector_store_dir = vector_store_dir or f"{data_dir}/vector_store"
@@ -80,15 +87,17 @@ class RAGChatbotPipeline:
         self.program_slugs = program_slugs
         self.use_cache = use_cache
         self.similarity_threshold = similarity_threshold  # Minimum similarity to use document
+        self.semantic_weight = semantic_weight
+        self.keyword_weight = keyword_weight
         
         # Check for API key
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise ValueError("GROQ_API_KEY not found in environment variables!")
         
-        print("\n" + "="*70)
-        print("INITIALIZING RAG CHATBOT PIPELINE")
-        print("="*70)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] \n" + "="*70)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] INITIALIZING RAG CHATBOT PIPELINE")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] " + "="*70)
         
         # Initialize components
         self.loader = DocumentLoader(data_dir=data_dir)
@@ -104,63 +113,20 @@ class RAGChatbotPipeline:
     
     def _initialize_pipeline(self):
         """Initialize the complete RAG pipeline."""
-        print("\n[PIPELINE] Initializing components...")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] \n[PIPELINE] Initializing components...")
         
-        # Step 1: Load documents
-
-        # TODO: Add supabase rpc integration for this section to find relatable chunks
-        print("\n[1/3] Loading documents...")
-        documents = self.loader.load_from_local_dir(
-            program_slugs=self.program_slugs
-        )
+        # Step 1: Verify Supabase connection (skip local document loading)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] \n[1/2] Verifying Supabase connection...")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] Using Supabase for vector storage and retrieval")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] ✓ Supabase configuration loaded")
         
-        if not documents:
-            raise ValueError("No documents loaded! Check data directory or run crawler.")
-        
-        # Step 2: Build vector store
-        print("\n[2/3] Building vector store...")
-        vector_store_path = Path(self.vector_store_dir)
-        
-        # Debug: Print document summary
-        print(f"\n[DEBUG] Document Summary:")
-        print(f"  Total documents loaded: {len(documents)}")
-        sources = {}
-        for doc in documents:
-            source = doc.metadata.get('source', 'unknown')
-            doc_type = doc.metadata.get('type', 'unknown')
-            sources[source] = sources.get(source, {})
-            sources[source][doc_type] = sources[source].get(doc_type, 0) + 1
-        
-        for source, types in sources.items():
-            print(f"  {source}:")
-            for doc_type, count in types.items():
-                print(f"    - {doc_type}: {count} documents")
-        print()
-        
-        # Try to load existing vector store
-        if vector_store_path.exists() and self.use_cache:
-            try:
-                print(f"  [PIPELINE] Attempting to load existing vector store...")
-                self.retriever_pipeline.load_vector_store(str(vector_store_path))
-                print(f"  [PIPELINE] ✓ Loaded existing vector store")
-                print(f"  [PIPELINE] NOTE: If retrieval isn't working, delete vector_store and rebuild")
-            except Exception as e:
-                print(f"  [PIPELINE] Could not load existing store: {e}")
-                print(f"  [PIPELINE] Building new vector store...")
-                self.retriever_pipeline.build_vector_store(documents)
-                self.retriever_pipeline.save_vector_store(str(vector_store_path))
-        else:
-            # Build new vector store
-            self.retriever_pipeline.build_vector_store(documents)
-            self.retriever_pipeline.save_vector_store(str(vector_store_path))
-        
-        # Step 3: Setup LLM chain
-        print("\n[3/3] Setting up LLM chain...")
+        # Step 2: Setup LLM chain
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] \n[2/2] Setting up LLM chain...")
         self._setup_llm_chain()
         
-        print("\n" + "="*70)
-        print("✓ RAG PIPELINE READY")
-        print("="*70 + "\n")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] \n" + "="*70)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ RAG PIPELINE READY")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] " + "="*70 + "\n")
     
     def _setup_llm_chain(self):
         """Setup the LLM chain for answer generation."""
@@ -172,7 +138,7 @@ class RAGChatbotPipeline:
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
         
-        print(f"  [PIPELINE] ✓ LLM initialized (model: {self.model_name})")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] ✓ LLM initialized (model: {self.model_name})")
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
@@ -198,98 +164,99 @@ STRICT RULES:
             ("human", "{question}")
         ])
         
-        print("  [PIPELINE] ✓ Prompt template configured")
-        
-        # Get retriever and vector store for debugging
-        retriever = self.retriever_pipeline.get_retriever()
-        vector_store = self.retriever_pipeline.vector_store
+        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] ✓ Prompt template configured")
         
         # Custom retriever function that prints debug info
         def retrieve_with_debug(question: str):
-            """Retrieve documents with similarity scores and print debug info."""
-            print(f"\n{'='*70}")
-            print(f"[RETRIEVER DEBUG] Query: {question}")
-            print(f"{'='*70}")
+            """Retrieve documents with hybrid search and print debug info using Supabase."""
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] \n{'='*70}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] Query: {question}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] Hybrid search weights - Semantic: {self.semantic_weight}, Keyword: {self.keyword_weight}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {'='*70}")
             
-            # Check if vector store is available
-            if vector_store is None:
-                print("[RETRIEVER DEBUG] ERROR: Vector store is None!")
-                return []
-            
-            # Use similarity_search_with_score to get scores
-            # Note: Lower score = more similar (L2 distance)
             try:
-                results_with_scores = vector_store.similarity_search_with_score(
-                    question, 
-                    k=self.retriever_pipeline.k
+                # 1. Embed query (using existing embeddings module)
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] Embedding query...")
+                query_embedding = self.retriever_pipeline.embeddings.embed_query(question)
+                
+                # 2. Retrieve from Supabase using hybrid search
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] Querying Supabase with hybrid search...")
+                results = retrieve_chunks(
+                    query=question,
+                    query_embedding=query_embedding,
+                    top_k=self.retriever_pipeline.k,
+                    semantic_weight=self.semantic_weight,
+                    keyword_weight=self.keyword_weight
                 )
+                
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] Retrieved {len(results)} chunks from Supabase")
+                
+                if not results:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] WARNING: No documents retrieved from Supabase!")
+                    return []
+                
+                # 3. Process results
+                filtered_docs = []
+                for idx, res in enumerate(results, 1):
+                    hybrid_score = res.get("hybrid_score", 0.0)
+                    similarity = res.get("similarity_score", 0.0)
+                    keyword_rank = res.get("keyword_rank", 0.0)
+                    content = res.get("content", "")
+                    metadata = res.get("metadata") or {}
+                    
+                    # Create Document object
+                    doc = Document(page_content=content, metadata=metadata)
+                    
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]   [{idx}] Hybrid Score: {hybrid_score:.4f} (Semantic: {similarity:.4f}, Keyword: {keyword_rank:.4f})", end="")
+                    
+                    # Check if document meets threshold (using hybrid_score)
+                    if hybrid_score >= self.similarity_threshold:
+                        print(f" ✓ (Above threshold: {self.similarity_threshold})")
+                        filtered_docs.append(doc)
+                    else:
+                        print(f" ✗ (Below threshold: {self.similarity_threshold}) - FILTERED OUT")
+                    
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]       Source: {doc.metadata.get('source', 'unknown')}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]       Section: {doc.metadata.get('section', 'N/A')}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]       Type: {doc.metadata.get('type', 'N/A')}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]       Key: {doc.metadata.get('key', 'N/A')}")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]       Content Preview: {doc.page_content[:200]}...")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] ")
+
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] After filtering: {len(filtered_docs)}/{len(results)} documents meet threshold ({self.similarity_threshold})")
+                
+                if len(filtered_docs) == 0:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] WARNING: No documents meet hybrid score threshold!")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] This means the retrieved documents are not relevant enough.")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] Consider:")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]   - Lowering threshold (current: {self.similarity_threshold})")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]   - Adjusting semantic/keyword weights (current: {self.semantic_weight}/{self.keyword_weight})")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]   - Improving document quality")
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}]   - Rephrasing the question")
+                
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {'='*70}\n")
+                
+                # Return filtered documents (only those above threshold)
+                return filtered_docs
+
             except Exception as e:
-                print(f"[RETRIEVER DEBUG] ERROR during retrieval: {e}")
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER DEBUG] ERROR during retrieval: {e}")
                 import traceback
                 traceback.print_exc()
                 return []
-            
-            print(f"[RETRIEVER DEBUG] Retrieved {len(results_with_scores)} documents:\n")
-            
-            if len(results_with_scores) == 0:
-                print("[RETRIEVER DEBUG] WARNING: No documents retrieved!")
-                print("[RETRIEVER DEBUG] This might mean:")
-                print("  - Vector store is empty")
-                print("  - Documents weren't loaded correctly")
-                print("  - Need to rebuild vector store")
-                return []
-            
-            # Filter documents by similarity threshold and keep similarity for deterministic ordering
-            scored_filtered_docs = []
-            for idx, (doc, score) in enumerate(results_with_scores, 1):
-                # Convert L2 distance to similarity (lower distance = higher similarity)
-                similarity = 1 / (1 + score)  # Convert distance to similarity score (0-1)
-                
-                print(f"  [{idx}] Similarity Score: {similarity:.4f} (Distance: {score:.4f})", end="")
-                
-                # Check if document meets threshold
-                if similarity >= self.similarity_threshold:
-                    print(f" ✓ (Above threshold: {self.similarity_threshold})")
-                    scored_filtered_docs.append((doc, similarity))
-                else:
-                    print(f" ✗ (Below threshold: {self.similarity_threshold}) - FILTERED OUT")
-                
-                print(f"      Source: {doc.metadata.get('source', 'unknown')}")
-                print(f"      Section: {doc.metadata.get('section', 'N/A')}")
-                print(f"      Type: {doc.metadata.get('type', 'N/A')}")
-                print(f"      Key: {doc.metadata.get('key', 'N/A')}")
-                print(f"      Content Preview: {doc.page_content[:200]}...")
-                print()
-
-            # Deterministic ordering by similarity (descending), with secondary key by metadata key
-            scored_filtered_docs.sort(key=lambda x: (-(x[1]), str(x[0].metadata.get('key', ''))))
-            filtered_docs = [doc for doc, _sim in scored_filtered_docs]
-
-            print(f"[RETRIEVER DEBUG] After filtering: {len(filtered_docs)}/{len(results_with_scores)} documents meet threshold ({self.similarity_threshold})")
-            
-            if len(filtered_docs) == 0:
-                print("[RETRIEVER DEBUG] WARNING: No documents meet similarity threshold!")
-                print("[RETRIEVER DEBUG] This means the retrieved documents are not relevant enough.")
-                print("[RETRIEVER DEBUG] Consider:")
-                print(f"  - Lowering threshold (current: {self.similarity_threshold})")
-                print("  - Improving document quality")
-                print("  - Rephrasing the question")
-            
-            print(f"{'='*70}\n")
-            
-            # Return filtered documents (only those above threshold)
-            return filtered_docs
 
         # Initialize agentic assistant that can use user profile and docs if available
         from rag.chatbot.agent import Agent
 
-        # Create the Agent with the existing llm, retriever pipeline and embeddings
+        # Create the Agent with the existing llm, retriever pipeline, embeddings, and hybrid search weights
         self.agent = Agent(
             llm=self.llm,
             retriever_pipeline=self.retriever_pipeline,
             embeddings=self.retriever_pipeline.embeddings,
             k=self.retriever_pipeline.k,
             similarity_threshold=self.similarity_threshold,
+            semantic_weight=self.semantic_weight,
+            keyword_weight=self.keyword_weight,
         )
         
         # Format documents helper with debug output
@@ -297,11 +264,11 @@ STRICT RULES:
             formatted = "\n\n".join([doc.page_content for doc in docs])
             
             # Debug: Print the full context being sent to LLM
-            print(f"\n{'='*70}")
-            print(f"[CONTEXT DEBUG] Full context being sent to LLM ({len(docs)} documents):")
-            print(f"{'='*70}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] \n{'='*70}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [CONTEXT DEBUG] Full context being sent to LLM ({len(docs)} documents):")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {'='*70}")
             print(formatted)
-            print(f"{'='*70}\n")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {'='*70}\n")
             
             return formatted
         
@@ -330,7 +297,7 @@ STRICT RULES:
             | StrOutputParser()
         )
         
-        print("  [PIPELINE] ✓ RAG chain configured with chat history support!")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] ✓ RAG chain configured with chat history support!")
     
     def answer_question(self, question: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
         """
@@ -364,7 +331,7 @@ STRICT RULES:
             return answer
         except Exception as e:
             error_msg = f"Error generating response: {str(e)}"
-            print(f"[PIPELINE] ✗ {error_msg}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] ✗ {error_msg}")
             return error_msg
     
     @property
@@ -378,7 +345,9 @@ def initialize_rag_pipeline(
     vector_store_dir: Optional[str] = None,
     use_cache: bool = True,
     program_slugs: Optional[List[str]] = None,
-    similarity_threshold: float = 0.40
+    similarity_threshold: float = 0.40,
+    semantic_weight: float = 0.7,
+    keyword_weight: float = 0.3
 ) -> RAGChatbotPipeline:
     """
     Initialize the RAG pipeline (convenience function).
@@ -388,8 +357,10 @@ def initialize_rag_pipeline(
         vector_store_dir: Directory for vector store
         use_cache: Use cached data if available
         program_slugs: List of program slugs to load
-        similarity_threshold: Minimum similarity score (0-1) to use a document.
-                             Documents below this are filtered out. Default: 0.55
+        similarity_threshold: Minimum hybrid score (0-1) to use a document.
+                             Documents below this are filtered out. Default: 0.40
+        semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.7)
+        keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.3)
         
     Returns:
         Initialized RAGChatbotPipeline instance
@@ -399,6 +370,8 @@ def initialize_rag_pipeline(
         vector_store_dir=vector_store_dir,
         use_cache=use_cache,
         program_slugs=program_slugs,
-        similarity_threshold=similarity_threshold
+        similarity_threshold=similarity_threshold,
+        semantic_weight=semantic_weight,
+        keyword_weight=keyword_weight
     )
 
