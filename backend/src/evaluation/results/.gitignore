@@ -1,0 +1,7 @@
+# Evaluation Results
+*.json
+!.gitkeep
+
+# Temporary files
+*.tmp
+*.log

@@ -39,3 +39,45 @@ Anonymized sample student profiles for testing recommendation of study programs.
 
 Expected Outcome
 A genAI-powered consulting chatbot (web app). The tool should demonstrate how generative AI can make international education consulting accessible, affordable, and trustworthy by providing verified, personalized guidance and automating complex application logistics for students.
+
+## LLM Evaluation Framework
+
+The project includes a comprehensive evaluation framework for assessing the quality and accuracy of the chatbot's responses.
+
+### Features
+- **Factual Accuracy**: Validates correctness of information and required keywords
+- **Groundedness**: Ensures answers are based on retrieved documents (prevents hallucinations)
+- **Relevance**: Checks if answers address the user's question
+
+### Quick Start
+
+```bash
+# Navigate to backend
+cd backend/src
+
+# Run demo (no dependencies required)
+python -m evaluation.demo
+
+# List available test datasets
+python -m evaluation.run_evaluation --list-datasets
+
+# Run evaluation on a dataset
+python -m evaluation.run_evaluation --dataset tum_informatics_deadlines_factual
+```
+
+### Documentation
+- **Quick Start**: `backend/src/evaluation/QUICKSTART.md` - 5-minute setup guide
+- **Full Documentation**: `backend/src/evaluation/README.md` - Complete guide
+- **Technical Details**: `backend/src/evaluation/IMPLEMENTATION_SUMMARY.md`
+
+### Creating Custom Test Cases
+
+Test cases are defined in JSON format in `backend/src/evaluation/datasets/`. Each test case includes:
+- Question and expected answer
+- Ground truth data
+- Evaluation metrics with thresholds
+- Good and bad answer examples
+
+See `backend/src/evaluation/datasets/tum_informatics_deadlines_factual.json` for a complete example.
+
+For more details, see the [Evaluation Framework Documentation](backend/src/evaluation/README.md).
