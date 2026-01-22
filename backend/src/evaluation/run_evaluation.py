@@ -19,9 +19,6 @@ CURRENT_DIR = Path(__file__).parent
 BACKEND_DIR = CURRENT_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from evaluation.evaluator import Evaluator
-from evaluation.test_case_loader import TestCaseLoader
-
 
 def main():
     """Main entry point for the evaluation runner."""
@@ -70,6 +67,7 @@ Examples:
     
     # Handle --list-datasets
     if args.list_datasets:
+        from evaluation.test_case_loader import TestCaseLoader
         loader = TestCaseLoader()
         datasets = loader.list_datasets()
         
@@ -93,6 +91,7 @@ Examples:
     print(f"Using RAG data directory: {args.data_dir}")
     
     try:
+        from evaluation.evaluator import Evaluator
         evaluator = Evaluator()
         
         # Run evaluation
