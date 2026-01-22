@@ -10,6 +10,7 @@ import sys
 import json
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import traceback
 from langchain_core.documents import Document
 
 # Add parent directories to path for imports
@@ -28,8 +29,12 @@ sys.path.insert(0, str(CHUNKER_DIR))  # Add chunker to path
 # Import using the same pattern as crawler.py
 # The crawler imports like: from chunker.langchain_splitters import MarkdownSplitter
 # So we need to be in a context where 'chunker' and 'parser' are importable
-from parser.crawler import TumDegreeParser
-from chunker.langchain_splitters import MarkdownHeaderSplitter
+
+# from parser.crawler import TumDegreeParser
+from chunker.langchain_splitters import (
+    MarkdownHeaderSplitter,
+    RecursiveTextSplitter
+)
 
 
 class DocumentLoader:
@@ -42,7 +47,7 @@ class DocumentLoader:
     3. Converts them into LangChain Document objects for the RAG pipeline
     """
     
-    def __init__(self, data_dir: str = "backend/rag/data"):
+    def __init__(self, data_dir: str = "backend/rag_data"):
         """
         Initialize the document loader.
         
@@ -50,21 +55,20 @@ class DocumentLoader:
             data_dir: Directory where crawled data is stored
         """
         self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.crawler = TumDegreeParser(data_dir=str(self.data_dir))
+        # self.data_dir.mkdir(parents=True, exist_ok=True)
+        # self.crawler = TumDegreeParser(data_dir=str(self.data_dir))
+        self.university = "TUM"
         self.md_splitter = MarkdownHeaderSplitter()
-        
-    def load_from_crawler(
+    
+    def load_from_local_dir(
         self, 
         program_slugs: Optional[List[str]] = None,
-        use_cache: bool = True
-    ) -> List[Document]:
+    ):
         """
-        Load documents by running the crawler or loading from cache.
+        Load documents from local directory.
         
         Args:
-            program_slugs: List of program slugs to crawl. If None, uses default list.
-            use_cache: If True, loads from existing files instead of crawling
+            program_slugs: List of program slugs to load. If None, uses default list.
         
         Returns:
             List of Document objects ready for chunking and embedding
@@ -84,52 +88,91 @@ class DocumentLoader:
             ]
         
         print(f"\n[LOADER] Loading documents for {len(program_slugs)} programs...")
-        
         for slug in program_slugs:
             program_dir = self.data_dir / slug
-            
-            # If cache exists and use_cache is True, load from files
-            if use_cache and program_dir.exists():
-                print(f"  [LOADER] Loading cached data for: {slug}")
-                docs = self._load_from_cache(program_dir, slug)
-                documents.extend(docs)
-            else:
-                # Run crawler to fetch fresh data
-                print(f"  [LOADER] Crawling fresh data for: {slug}")
-                docs = self._crawl_and_load(slug)
-                documents.extend(docs)
-        
-        print(f"  [LOADER] ✓ Loaded {len(documents)} total documents")
-        return documents
-    
-    def _crawl_and_load(self, program_slug: str) -> List[Document]:
-        """
-        Crawl a program and convert to documents.
-        
-        Args:
-            program_slug: Program slug to crawl
-            
-        Returns:
-            List of Document objects
-        """
-        documents = []
-        
-        try:
-            # Run crawler
-            self.crawler.load_by_slug(program_slug)
-            self.crawler.parse(program_slug)
-            data = self.crawler.to_dict()
-            self.crawler.save_json(data, program_slug)
-            
-            # Load the generated files
-            program_dir = self.data_dir / program_slug
-            docs = self._load_from_cache(program_dir, program_slug)
+            docs = self._load_from_cache(program_dir, slug)
             documents.extend(docs)
-            
-        except Exception as e:
-            print(f"  [LOADER] ✗ Error crawling {program_slug}: {e}")
         
+        print(f"  [LOADER] ✓ Loaded {len(documents)} total document from local cache.")
         return documents
+        
+    # def load_from_crawler(
+    #     self, 
+    #     program_slugs: Optional[List[str]] = None,
+    #     use_cache: bool = True
+    # ) -> List[Document]:
+    #     """
+    #     Load documents by running the crawler or loading from cache.
+        
+    #     Args:
+    #         program_slugs: List of program slugs to crawl. If None, uses default list.
+    #         use_cache: If True, loads from existing files instead of crawling
+        
+    #     Returns:
+    #         List of Document objects ready for chunking and embedding
+    #     """
+    #     documents = []
+        
+    #     # Default program slugs if none provided
+    #     if program_slugs is None:
+    #         program_slugs = [
+    #             "informatics-master-of-science-msc",
+    #             "mathematics-master-of-science-msc",
+    #             "mathematics-in-data-science-master-of-science-msc",
+    #             "mathematics-in-science-and-engineering-master-of-science-msc",
+    #             "mathematical-finance-and-actuarial-science-master-of-science-msc",
+    #             "informatics-games-engineering-master-of-science-msc",
+    #             "informatics-bachelor-of-science-bsc"
+    #         ]
+        
+    #     print(f"\n[LOADER] Loading documents for {len(program_slugs)} programs...")
+        
+    #     for slug in program_slugs:
+    #         program_dir = self.data_dir / slug
+            
+    #         # If cache exists and use_cache is True, load from files
+    #         if use_cache and program_dir.exists():
+    #             print(f"  [LOADER] Loading cached data for: {slug}")
+    #             docs = self._load_from_cache(program_dir, slug)
+    #             documents.extend(docs)
+    #         else:
+    #             # Run crawler to fetch fresh data
+    #             print(f"  [LOADER] Crawling fresh data for: {slug}")
+    #             docs = self._crawl_and_load(slug)
+    #             documents.extend(docs)
+        
+    #     print(f"  [LOADER] ✓ Loaded {len(documents)} total documents")
+    #     return documents
+    
+    # def _crawl_and_load(self, program_slug: str) -> List[Document]:
+    #     """
+    #     Crawl a program and convert to documents.
+        
+    #     Args:
+    #         program_slug: Program slug to crawl
+            
+    #     Returns:
+    #         List of Document objects
+    #     """
+    #     documents = []
+    #     data = None
+    #     try:
+    #         # Run crawler
+    #         self.crawler.load_by_slug(program_slug)
+    #         self.crawler.parse(program_slug)
+    #         data = self.crawler.to_dict()
+    #         self.crawler.save_json(data, program_slug)
+
+    #         # Load the generated files
+    #         program_dir = self.data_dir / program_slug
+    #         docs = self._load_from_cache(program_dir, program_slug)
+    #         documents.extend(docs)
+
+    #     except Exception as e:
+    #         traceback.print_exc()
+    #         print(f"  [LOADER] ✗ Error crawling {program_slug}: {e}")
+
+    #     return documents
     
     def _load_from_cache(self, program_dir: Path, program_slug: str) -> List[Document]:
         """
@@ -213,6 +256,8 @@ class DocumentLoader:
                 keywords = "\n(Admission requirements, entry requirements)"
             elif "credit" in key.lower() or "ects" in key.lower():
                 keywords = "\n(ECTS credits, credit points, course credits, total credits required)"
+            elif "language" in key.lower() or "proficiency" in key.lower():
+                keywords = "\n(Language requirements, language proficiency, German requirement, English requirement, language certificate, language test)"
             
             # Format the content to be more searchable
             if isinstance(value, str) and len(value) > 50:
@@ -259,11 +304,16 @@ class DocumentLoader:
                 # Simple value - keywords already set above
                 content = f"Program: {program_name}\nSection: {section}\n{key}: {value}{keywords}"
             
+            # Parse degree, degree level information
+            degree, degree_level = self._parse_program_slug(program_slug)
             documents.append(
                 Document(
                     page_content=content,
                     metadata={
                         "source": program_slug,
+                        "university": self.university,
+                        "degree": degree,
+                        "degree_level": degree_level,
                         "type": "metadata",
                         "section": section,
                         "key": key,
@@ -303,13 +353,16 @@ class DocumentLoader:
             List of Document objects
         """
         documents = []
-        
+        degree, degree_level = self._parse_program_slug(program_slug)
         for header, content in md_chunks.items():
             documents.append(
                 Document(
                     page_content=content,
                     metadata={
                         "source": program_slug,
+                        "university": self.university,
+                        "degree": degree,
+                        "degree_level": degree_level,
                         "type": "aptitude_assessment",
                         "header": header,
                         "section": f"aptitude_assessment/{header}"
@@ -319,3 +372,73 @@ class DocumentLoader:
         
         return documents
 
+    def _parse_program_slug(self, program_slug: str):
+        """
+        Parse a hyphen-separated program slug into degree and level.
+
+        Args:
+            program_slug: Hyphen-separated slug (e.g. "informatics-master-of-science-msc").
+
+        Returns:
+            Tuple[str, Optional[str]]: `(degree, degree_level)` where `degree` is
+            the part before 'master'/'bachelor' (or the original slug if not found),
+            and `degree_level` is 'master', 'bachelor', or `None`.
+        """
+
+        parts = program_slug.split("-")
+        degree_level = None
+        degree = program_slug
+        for idx, part in enumerate(parts):
+            p = part.lower()
+            if p in ("master", "bachelor"):
+                degree_level = p
+                degree = "-".join(parts[:idx]) if idx > 0 else ""
+                break
+        return degree, degree_level
+
+
+def loaded_docs_to_chunks(documents: List[Document], chunk_size, chunk_overlap):
+    """
+    Split documents into character-based chunks while preserving short docs.
+
+    Args:
+        documents: List of `Document` objects to split or keep.
+        chunk_size: Maximum characters per chunk.
+        chunk_overlap: Number of overlapping characters between chunks.
+
+    Returns:
+        List[Document]: Flattened list of document chunks.
+    """
+
+    text_splitter = RecursiveTextSplitter(chunk_size, chunk_overlap)
+    all_chunks = []
+
+    for doc in documents:
+        # If document is already from markdown chunks, use as-is
+        if doc.metadata.get("type") == "aptitude_assessment":
+            # Already chunked by markdown splitter, just add to chunks
+            chunks = text_splitter.split_documents([doc])
+            all_chunks.extend(chunks)
+        else:
+            # For metadata/JSON content, only split if document is very long
+            # Most metadata documents are complete units and shouldn't be split
+            doc_length = len(doc.page_content)
+            doc_key = doc.metadata.get("key", "unknown")
+            
+            # Only split if document is significantly longer than chunk_size
+            # This preserves complete information for metadata documents
+            if doc_length > chunk_size * 2:  # Only split if > 3x chunk_size (1500+ chars)
+                # Document is long enough to warrant splitting
+                chunks = text_splitter.split_documents([doc])
+                all_chunks.extend(chunks)
+                if doc_key == "Application deadlines":
+                    print(f"      [RETRIEVER DEBUG] Split 'Application deadlines' into {len(chunks)} chunks")
+                    for i, chunk in enumerate(chunks):
+                        print(f"        Chunk {i+1}: {len(chunk.page_content)} chars - {chunk.page_content[:100]}...")
+            else:
+                # Keep document as a single chunk to preserve complete information
+                all_chunks.append(doc)
+                if doc_key == "Application deadlines":
+                    print(f"      [RETRIEVER DEBUG] Kept 'Application deadlines' as single chunk ({doc_length} chars)")
+                    print(f"        Preview: {doc.page_content[:200]}...")
+    return all_chunks

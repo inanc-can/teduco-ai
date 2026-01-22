@@ -42,11 +42,14 @@ class MarkdownHeaderSplitter:
         Raises:
             ValueError: If markdown_text is empty or None.
         """
-        if not markdown_text or not isinstance(markdown_text, str):
-            raise ValueError("markdown_text must be a non-empty string")
-        
-        splits: List[Document] = self.header_splitter.split_text(markdown_text)
-        return splits
+        try:
+            if not markdown_text or not isinstance(markdown_text, str):
+                return []
+
+            splits: List[Document] = self.header_splitter.split_text(markdown_text)
+            return splits or []
+        except Exception:
+            return []
 
     def build_header_content_mapping(
         self,
@@ -124,9 +127,19 @@ class MarkdownHeaderSplitter:
         Returns:
             List[Document]: Documents returned by split_markdown.
         """
+        if not markdown_text:
+            print("Markdown text is empty.")
+            return []
+
         chunks = self.split_markdown(markdown_text)
-        self.export_to_json(chunks, output_path, file_name)
+        if chunks:
+            try:
+                self.export_to_json(chunks, output_path, file_name)
+            except Exception:
+                pass
+
         return chunks
+
 
 
 

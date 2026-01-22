@@ -87,7 +87,8 @@ cp .ENV.EXAMPLE .env
 3. Run the scraper:
 
 ```bash
-python src/rag/parser/crawler.py
+
+python backend/src/rag/parser/crawler.py
 ```
 
 
