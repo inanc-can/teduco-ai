@@ -1,6 +1,22 @@
 {
   "user": "zeynep_kaya",
-  "test_date": null,
-  "user_id": null,
-  "conversations": []
+  "user_id": "0ad4ebe2-635c-4a48-932a-510cc22f8bfa",
+  "test_date": "2026-01-22T10:13:57.369212",
+  "conversations": [
+    {
+      "question": "I have a Mathematics degree with focus on statistical learning and machine learning. I want to pursue data science at TUM. What programs are available?",
+      "answer": "Based on your background in Mathematics with a focus on statistical learning and machine learning, I would recommend the Mathematics in Data Science Master of Science (M.Sc.) program at TUM. This program is a perfect fit for your interests and skills, and it will equip you with the knowledge and expertise needed to excel in the field of data science.\n\nThe program requires 120 ECTS credits, which you can complete on a full-time basis. You can start the program in either the winter or summer semester. The admission process involves an aptitude assessment procedure, which evaluates your competencies and written documents using a point system.\n\nTo learn more about the program and the application process, I suggest visiting the TUM website: https://www.tum.de/en/studies/during-your-studies/organizing-your-studies/key-words-concerning-your-studies#c2288. You can also find more information on the Mathematics in Data Science M.Sc. program page: https://www.tum.de/en/studies/master-studies/mathematics-in-data-science/.",
+      "timestamp": "2026-01-22T10:13:51.452061"
+    },
+    {
+      "question": "My thesis was on Bayesian methods for high-dimensional regression. Is this relevant for the Data Science master's?",
+      "answer": "I don't know enough information to answer your question. Please provide more details or contact TUM directly at study@tum.de for detailed assistance.",
+      "timestamp": "2026-01-22T10:13:53.424550"
+    },
+    {
+      "question": "What's the difference between Mathematics MSc and Mathematics in Data Science MSc? Which one is better for me?",
+      "answer": "Based on the context, it seems that the Mathematics in Data Science Master of Science (M.Sc.) program is specifically designed for students with a background in mathematics who want to pursue a career in data science. This program focuses on the application of mathematical techniques to data science problems.\n\nThe Mathematics M.Sc. program is not explicitly mentioned in the context, but it's likely a more general mathematics program that may not have a specific focus on data science.\n\nConsidering your background in mathematics with a focus on statistical learning and machine learning, and your interest in data science, I would recommend the Mathematics in Data Science M.Sc. program. This program seems to be a better fit for your interests and skills.\n\nTo learn more about the Mathematics in Data Science M.Sc. program and how it can help you achieve your goals, I suggest visiting the TUM website: https://www.tum.de/en/studies/master-studies/mathematics-in-data-science/.",
+      "timestamp": "2026-01-22T10:13:57.369080"
+    }
+  ]
 }
