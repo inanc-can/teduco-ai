@@ -1,0 +1,188 @@
+{
+  "dataset_name": "tum_informatics_deadlines_factual",
+  "version": "1.0",
+  "created": "2026-01-22",
+  "source": "TUM Informatics Master's program data from backend/rag_data/informatics-master-of-science-msc/",
+  
+  "test_cases": [
+    {
+      "test_id": "fact_deadline_tum_informatics_001",
+      "question": "What is the application deadline for TUM Informatics Master's program?",
+      
+      "metadata": {
+        "question_type": "factual",
+        "complexity_level": 1,
+        "journey_phase": "research",
+        "priority": "critical",
+        "language": "english",
+        "persona": "generic"
+      },
+      
+      "context": {
+        "student_profile": null,
+        "conversation_history": [],
+        "relevant_documents": [
+          "backend/rag_data/informatics-master-of-science-msc/informatics-master-of-science-msc.json"
+        ]
+      },
+      
+      "expected_output": {
+        "ground_truth": {
+          "deadline_winter": "May 31",
+          "deadline_summer": "November 30",
+          "application_period_winter": "01.02. – 31.05.",
+          "application_period_summer": "01.10. – 30.11.",
+          "applicant_type": "all applicants",
+          "application_portal": "TUMonline"
+        },
+        "must_include_keywords": ["May 31", "winter semester", "November 30", "summer semester"],
+        "must_cite_sources": true,
+        "must_include_details": [
+          "Mention both winter and summer semesters",
+          "Specify the application periods",
+          "Mention application portal (TUMonline)"
+        ],
+        "acceptable_variations": [
+          "The deadline is May 31 for winter semester",
+          "Applications close on May 31st for winter semester starting in October",
+          "You must apply by May 31 if you want to start in winter semester (October)",
+          "For winter admission, the deadline is May 31. For summer semester, it's November 30"
+        ],
+        "unacceptable_responses": [
+          "The deadline is in May (too vague - no date)",
+          "May 31 (missing semester context)",
+          "Usually around May (not specific enough)",
+          "Check the website (not helpful - should provide answer)",
+          "April 15 (wrong date - hallucination)"
+        ]
+      },
+      
+      "evaluation_metrics": {
+        "factual_accuracy": {
+          "weight": 0.5,
+          "threshold": 0.98,
+          "scoring_rules": {
+            "correct_date": 0.5,
+            "correct_semester": 0.2,
+            "mentions_both_semesters": 0.2,
+            "mentions_portal": 0.1
+          }
+        },
+        "groundedness": {
+          "weight": 0.3,
+          "threshold": 0.95,
+          "check": "Answer must be verifiable in source documents"
+        },
+        "relevance": {
+          "weight": 0.2,
+          "threshold": 0.90,
+          "check": "Directly answers the deadline question"
+        }
+      },
+      
+      "good_answer_example": "The application deadline for TUM Informatics Master's program is **May 31** for the winter semester (starting in October). The application period is from February 1 to May 31. For the summer semester, the deadline is **November 30**, with applications opening on October 1. You should apply through the TUMonline portal.",
+      
+      "bad_answer_examples": [
+        {
+          "answer": "The deadline is usually in spring.",
+          "why_bad": "Too vague, no specific date",
+          "score": 0.2
+        },
+        {
+          "answer": "You should apply by March 31 for TUM Informatics.",
+          "why_bad": "Wrong date (incorrect deadline)",
+          "score": 0.0
+        },
+        {
+          "answer": "Check the TUM website for deadlines.",
+          "why_bad": "Unhelpful deflection, doesn't answer",
+          "score": 0.1
+        }
+      ]
+    },
+    {
+      "test_id": "fact_requirements_tum_informatics_002",
+      "question": "What are the admission requirements for TUM Informatics Master's?",
+      
+      "metadata": {
+        "question_type": "factual",
+        "complexity_level": 2,
+        "journey_phase": "research",
+        "priority": "high",
+        "language": "english",
+        "persona": "generic"
+      },
+      
+      "context": {
+        "student_profile": null,
+        "conversation_history": [],
+        "relevant_documents": [
+          "backend/rag_data/informatics-master-of-science-msc/informatics-master-of-science-msc.json"
+        ]
+      },
+      
+      "expected_output": {
+        "ground_truth": {
+          "degree_required": "recognized undergraduate degree (Bachelor's)",
+          "assessment": "aptitude assessment procedure",
+          "language": "English proficiency required",
+          "credits": "120 ECTS for the Master's program"
+        },
+        "must_include_keywords": ["Bachelor", "aptitude assessment", "English"],
+        "must_cite_sources": false,
+        "must_include_details": [
+          "Mention undergraduate degree requirement",
+          "Mention aptitude assessment",
+          "Mention language requirements"
+        ],
+        "acceptable_variations": [
+          "You need a Bachelor's degree and must pass the aptitude assessment",
+          "Requirements include an undergraduate degree, aptitude assessment, and English proficiency",
+          "A recognized Bachelor's degree is required, along with passing the aptitude assessment procedure"
+        ],
+        "unacceptable_responses": [
+          "Just apply and see (no actual requirements given)",
+          "You need good grades (too vague)",
+          "No specific requirements (factually incorrect)"
+        ]
+      },
+      
+      "evaluation_metrics": {
+        "factual_accuracy": {
+          "weight": 0.5,
+          "threshold": 0.90,
+          "scoring_rules": {
+            "mentions_degree": 0.3,
+            "mentions_aptitude": 0.4,
+            "mentions_language": 0.3
+          }
+        },
+        "groundedness": {
+          "weight": 0.3,
+          "threshold": 0.90,
+          "check": "Answer must be verifiable in source documents"
+        },
+        "relevance": {
+          "weight": 0.2,
+          "threshold": 0.85,
+          "check": "Addresses admission requirements comprehensively"
+        }
+      },
+      
+      "good_answer_example": "The admission requirements for TUM Informatics Master's include: 1) A recognized undergraduate degree (e.g., Bachelor's), 2) Successful completion of the aptitude assessment procedure, and 3) Proof of English language proficiency. The aptitude assessment evaluates your grades, written documents, and may include an interview.",
+      
+      "bad_answer_examples": [
+        {
+          "answer": "You need to have studied computer science.",
+          "why_bad": "Incomplete - missing key requirements like aptitude assessment",
+          "score": 0.3
+        },
+        {
+          "answer": "Just submit your application and they'll review it.",
+          "why_bad": "Unhelpful, doesn't list actual requirements",
+          "score": 0.1
+        }
+      ]
+    }
+  ]
+}
