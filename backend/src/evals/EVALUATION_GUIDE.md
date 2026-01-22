@@ -1,42 +1,67 @@
-# Evaluation Guide
+# LLM Evaluation Guide
 
 ## Purpose
-This document aims to provide a comprehensive guide for evaluating LLM frameworks effectively, detailing the methodologies, target user personas, and evaluation criteria specific to our application.
+The purpose of this guide is to outline a comprehensive evaluation framework for Large Language Models (LLMs) that ensures reliable and valid assessments. The guide will help researchers and developers understand how to effectively evaluate LLM performance.
 
 ## Framework Architecture
-An exploration of the underlying architecture of the evaluation framework, including descriptions of components and their interactions.
+The LLM evaluation framework consists of several components:
+- Evaluation Runner: The tool that executes the evaluations.
+- Test Datasets: The datasets used for evaluating the models.
+- Metrics Implementation: Set metrics to measure model performance.
+- Persona-aware evaluation: Encourages viewing results from multiple personas' perspectives.
 
 ## Target User Personas
-1. **Ahmet**: A data scientist focused on deploying machine learning models and evaluating their performance.
-2. **Elif**: A product manager interested in understanding the user experience and efficiency of LLM applications.
-3. **Mehmet**: A software developer responsible for integrating evaluation metrics into applications.
+1. **Ahmet**: A data scientist focusing on model accuracy.
+2. **Elif**: A product manager interested in user experience.
+3. **Mehmet**: An educator evaluating LLMs for educational use.
 
 ## Question Type Taxonomy
-Breakdown of the various types of questions that can be utilized in evaluations, categorized by complexity and expected responses.
+Questions will be categorized as follows:
+- Fact-based Questions
+- Opinion-based Questions
+- Instructional Questions
+- Scenario-based Questions
 
-## Test Case Formats
-Guidelines on how to structure test cases to ensure clarity and consistency in evaluations.
+## Test Case Format
+Each test case should include:
+- Question
+- Expected Answer
+- User Persona
+- Evaluation Criteria
 
-## Persona-aware Evaluation
-Strategies for tailoring evaluation processes that consider the specific needs and perspectives of different user personas.
+## Persona-Aware Evaluation
+This approach considers how different personas perceive and use LLM outputs. Evaluators should relate results to the specific needs of each persona defined above.
 
-## Turkish-specific Evaluation Criteria
-Criteria specifically tailored for evaluating LLMs developed for or primarily used in Turkish contexts, emphasizing language nuances and cultural considerations.
+## Turkish-Specific Evaluation Criteria
+Criteria tailored to the Turkish language and cultural context will be included:
+- Linguistic appropriateness
+- Cultural relevance
 
 ## Evaluation Metrics Implementation
-A detailed approach to implementing various evaluation metrics, including accuracy, precision, recall, and F1 scores.
+Metrics can include:
+- Accuracy
+- F1 Score
+- User Satisfaction Ratings
 
-## Evaluation Runner Code
-Sample code snippets to demonstrate how to run evaluations using the framework, as well as how to automatically collect metrics during assessments.
+## Evaluation Runner
+An automated system that integrates the metrics calculation using the test datasets.
 
-## Test Dataset Templates
-Templates for creating test datasets that align with the evaluation objectives, ensuring reproducibility and standardization.
+## Test Datasets
+A list of available datasets, both in English and Turkish, to be used for the evaluations:
+1. Turkish Language Datasets
+2. Multilingual Datasets
 
 ## Success Criteria
-Definition of what constitutes success for the evaluation process, including benchmarks and expected outcomes for model performance.
+Evaluation success can be defined by:
+- Meeting predefined benchmarks for accuracy and user satisfaction.
+- Effective performance across all user personas.
 
 ## CI/CD Integration
-Discussion on how to integrate the evaluation framework within CI/CD pipelines to automate testing and monitoring.
+The evaluation framework will support CI/CD practices by automating testing and metrics reporting in the development pipeline.
 
 ## Phased Implementation Plan
-Outline of a phased approach to implement the evaluation practices across projects, including short-term and long-term goals.
+The implementation plan will be rolled out in the following phases:
+1. Phase 1: Define evaluation metrics and datasets.
+2. Phase 2: Develop the evaluation runner.
+3. Phase 3: Conduct pilot testing with user personas.
+4. Phase 4: Refine and finalize the framework based on feedback.
