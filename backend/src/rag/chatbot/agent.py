@@ -250,10 +250,37 @@ class Agent:
         print(f"[Agent] Total documents loaded: {len(docs)}")
         return docs
 
+    def _expand_query_for_deadlines(self, question: str) -> str:
+        """Expand query with deadline-related synonyms for better keyword matching.
+
+        If the question is about when to apply, deadlines, or intake periods,
+        add explicit keywords that match the indexed content.
+        """
+        question_lower = question.lower()
+
+        # Check if this is a deadline-related question
+        deadline_triggers = [
+            "when", "apply", "deadline", "intake", "fall", "winter", "summer",
+            "semester", "admission date", "application date", "too late", "time to apply"
+        ]
+
+        if any(trigger in question_lower for trigger in deadline_triggers):
+            # Add explicit keywords that match the indexed content
+            expansion = " application period application deadline when to apply admission deadline"
+            print(f"[AGENT KB SEARCH] Query expanded with deadline keywords")
+            return question + expansion
+
+        return question
+
     # ------------------ Search ------------------
-    def search_kb(self, question: str) -> List[Document]:
-        """Search the knowledge base using Supabase hybrid search (semantic + keyword)."""
-        
+    def search_kb(self, question: str, profile: Optional[Dict[str, Any]] = None) -> List[Document]:
+        """Search the knowledge base using Supabase hybrid search (semantic + keyword).
+
+        Args:
+            question: The user's question
+            profile: Optional user profile dict to infer degree level from education type
+        """
+
         # Check if this is a "list all programs" type query
         question_lower = question.lower()
         
@@ -302,25 +329,40 @@ class Agent:
         print(f"{'='*70}")
         
         try:
-            # 1. Extract degree level from question if present
+            # 1. Extract degree level from question keywords first, then fall back to profile
             degree_level_filter = None
             question_lower = question.lower()
             if "bachelor" in question_lower or "bachelor's" in question_lower or "undergraduate" in question_lower or "bsc" in question_lower:
                 degree_level_filter = "bachelor"
-                print(f"[AGENT KB SEARCH] Detected bachelor degree level")
+                print(f"[AGENT KB SEARCH] Detected bachelor degree level from question keywords")
             elif "master" in question_lower or "master's" in question_lower or "msc" in question_lower or "mse" in question_lower:
                 degree_level_filter = "master"
-                print(f"[AGENT KB SEARCH] Detected master degree level")
+                print(f"[AGENT KB SEARCH] Detected master degree level from question keywords")
+            elif profile:
+                # Infer degree level from user profile's applicant_type
+                # high-school student → looking for Bachelor programs
+                # university student → looking for Master programs
+                user = profile.get("user") or {}
+                applicant_type = user.get("applicant_type", "") if isinstance(user, dict) else ""
+                if applicant_type == "high-school":
+                    degree_level_filter = "bachelor"
+                    print(f"[AGENT KB SEARCH] Inferred bachelor degree level from user profile (high school student)")
+                elif applicant_type == "university":
+                    degree_level_filter = "master"
+                    print(f"[AGENT KB SEARCH] Inferred master degree level from user profile (university student)")
             
-            # 2. Embed the query
+            # 2. Embed the query (original question for semantic search)
             print(f"[AGENT KB SEARCH] Embedding query...")
             query_embedding = self.embeddings.embed_query(question)
-            
+
+            # 2b. Expand query for keyword search (add synonyms for better matching)
+            expanded_query = self._expand_query_for_deadlines(question)
+
             # 3. Retrieve from Supabase using hybrid search (fetch more for MMR)
             fetch_k = self.k * 5  # Fetch 5x more candidates for diversity
             print(f"[AGENT KB SEARCH] Querying Supabase with k={fetch_k} (will apply MMR to select top {self.k})...")
             results = retrieve_chunks(
-                query=question,
+                query=expanded_query,  # Use expanded query for keyword matching
                 query_embedding=query_embedding,
                 top_k=fetch_k,
                 semantic_weight=self.semantic_weight,
@@ -784,7 +826,7 @@ class Agent:
 
         if "search_kb" in actions:
             print(f"[AGENT RUN] Searching knowledge base...")
-            kb_docs = self.search_kb(question)
+            kb_docs = self.search_kb(question, profile=profile)
             print(f"[AGENT RUN] KB search returned {len(kb_docs)} documents\n")
         else:
             print(f"[AGENT RUN] ⚠ 'search_kb' not in actions - KB will not be consulted!\n")
