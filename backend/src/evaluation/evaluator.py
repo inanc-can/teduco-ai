@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 
 from evaluation.chatbot_interface import ChatbotInterface
 from evaluation.metrics import EvaluationMetrics
+from evaluation.llm_judge import LLMJudge
 from evaluation.test_case_loader import TestCaseLoader
 
 
@@ -22,7 +23,8 @@ class Evaluator:
     def __init__(
         self,
         chatbot_interface: Optional[ChatbotInterface] = None,
-        results_dir: str = None
+        results_dir: str = None,
+        judge_type: str = "llm"
     ):
         """
         Initialize the evaluator.
@@ -30,9 +32,18 @@ class Evaluator:
         Args:
             chatbot_interface: Interface to the chatbot
             results_dir: Directory to save evaluation results
+            judge_type: Evaluation method - 'llm' or 'keyword' (default: 'llm')
         """
         self.chatbot = chatbot_interface or ChatbotInterface()
-        self.metrics = EvaluationMetrics()
+        self.judge_type = judge_type
+        
+        if judge_type == "llm":
+            self.llm_judge = LLMJudge()
+            self.metrics = None
+        else:
+            self.metrics = EvaluationMetrics()
+            self.llm_judge = None
+        
         self.loader = TestCaseLoader()
         
         if results_dir is None:
@@ -90,46 +101,75 @@ class Evaluator:
             retrieved_docs = self.chatbot.get_retrieved_documents(question)
             print(f"\nRetrieved Documents: {len(retrieved_docs)}")
         
-        # Calculate metrics
-        
-        # 1. Factual Accuracy
-        ground_truth = expected_output.get('ground_truth', {})
-        must_include_keywords = expected_output.get('must_include_keywords', [])
-        scoring_rules = eval_metrics_config.get('factual_accuracy', {}).get('scoring_rules')
-        
-        factual_result = self.metrics.factual_accuracy(
-            answer=answer,
-            ground_truth=ground_truth,
-            must_include_keywords=must_include_keywords,
-            scoring_rules=scoring_rules
-        )
-        
-        # 2. Groundedness
-        groundedness_result = self.metrics.groundedness(
-            answer=answer,
-            retrieved_documents=retrieved_docs
-        )
-        
-        # 3. Relevance
-        expected_topics = expected_output.get('must_include_details', [])
-        relevance_result = self.metrics.relevance(
-            answer=answer,
-            question=question,
-            expected_topics=expected_topics
-        )
-        
-        # Calculate weighted score
-        weights = {}
-        for metric_name in ['factual_accuracy', 'groundedness', 'relevance']:
-            if metric_name in eval_metrics_config:
-                weights[metric_name] = eval_metrics_config[metric_name].get('weight', 0.33)
-        
-        overall_score = self.metrics.calculate_weighted_score(
-            factual_result=factual_result,
-            groundedness_result=groundedness_result,
-            relevance_result=relevance_result,
-            weights=weights if weights else None
-        )
+        # Calculate metrics based on judge type
+        if self.judge_type == "llm":
+            # Use LLM judge
+            ground_truth = expected_output.get('ground_truth', {})
+            must_include_keywords = expected_output.get('must_include_keywords', [])
+            
+            eval_result = self.llm_judge.evaluate_all(
+                question=question,
+                answer=answer,
+                ground_truth=ground_truth,
+                must_include_keywords=must_include_keywords,
+                retrieved_documents=retrieved_docs
+            )
+            
+            # Extract individual metrics
+            factual_result = {
+                'score': eval_result['factual_accuracy']['score'],
+                'details': eval_result['factual_accuracy']
+            }
+            groundedness_result = {
+                'score': eval_result['groundedness']['score'],
+                'details': eval_result['groundedness']
+            }
+            relevance_result = {
+                'score': eval_result['relevance']['score'],
+                'details': eval_result['relevance']
+            }
+            overall_score = eval_result['overall_score']
+            
+        else:
+            # Use keyword-based metrics
+            # 1. Factual Accuracy
+            ground_truth = expected_output.get('ground_truth', {})
+            must_include_keywords = expected_output.get('must_include_keywords', [])
+            scoring_rules = eval_metrics_config.get('factual_accuracy', {}).get('scoring_rules')
+            
+            factual_result = self.metrics.factual_accuracy(
+                answer=answer,
+                ground_truth=ground_truth,
+                must_include_keywords=must_include_keywords,
+                scoring_rules=scoring_rules
+            )
+            
+            # 2. Groundedness
+            groundedness_result = self.metrics.groundedness(
+                answer=answer,
+                retrieved_documents=retrieved_docs
+            )
+            
+            # 3. Relevance
+            expected_topics = expected_output.get('must_include_details', [])
+            relevance_result = self.metrics.relevance(
+                answer=answer,
+                question=question,
+                expected_topics=expected_topics
+            )
+            
+            # Calculate weighted score
+            weights = {}
+            for metric_name in ['factual_accuracy', 'groundedness', 'relevance']:
+                if metric_name in eval_metrics_config:
+                    weights[metric_name] = eval_metrics_config[metric_name].get('weight', 0.33)
+            
+            overall_score = self.metrics.calculate_weighted_score(
+                factual_result=factual_result,
+                groundedness_result=groundedness_result,
+                relevance_result=relevance_result,
+                weights=weights if weights else None
+            )
         
         # Check if test passes
         passes = True
@@ -152,14 +192,31 @@ class Evaluator:
                     passes = False
         
         # Print results
-        print(f"\n--- Evaluation Results ---")
+        print(f"\n--- Evaluation Results ({self.judge_type.upper()}) ---")
         print(f"Factual Accuracy: {factual_result['score']:.3f}")
-        print(f"  Keywords Found: {factual_result['details']['keywords_found']}")
-        print(f"  Keywords Missing: {factual_result['details']['keywords_missing']}")
+        
+        if self.judge_type == "llm":
+            print(f"  Explanation: {factual_result['details'].get('explanation', 'N/A')}")
+            if factual_result['details'].get('missing_facts'):
+                print(f"  Missing Facts: {factual_result['details']['missing_facts']}")
+        else:
+            print(f"  Keywords Found: {factual_result['details']['keywords_found']}")
+            print(f"  Keywords Missing: {factual_result['details']['keywords_missing']}")
+        
         print(f"\nGroundedness: {groundedness_result['score']:.3f}")
-        print(f"  Grounded: {groundedness_result['details']['grounded']}")
+        
+        if self.judge_type == "llm":
+            print(f"  Explanation: {groundedness_result['details'].get('explanation', 'N/A')}")
+        else:
+            print(f"  Grounded: {groundedness_result['details']['grounded']}")
+        
         print(f"\nRelevance: {relevance_result['score']:.3f}")
-        print(f"  Is Deflection: {relevance_result['details']['is_deflection']}")
+        
+        if self.judge_type == "llm":
+            print(f"  Explanation: {relevance_result['details'].get('explanation', 'N/A')}")
+        else:
+            print(f"  Is Deflection: {relevance_result['details']['is_deflection']}")
+        
         print(f"\nOverall Score: {overall_score:.3f}")
         print(f"Test Passes: {passes}")
         

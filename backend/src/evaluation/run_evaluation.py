@@ -57,6 +57,14 @@ Examples:
     )
     
     parser.add_argument(
+        '--judge-type',
+        type=str,
+        choices=['llm', 'keyword'],
+        default='llm',
+        help='Evaluation method: llm (LLM-as-a-Judge) or keyword (keyword matching). Default: llm'
+    )
+    
+    parser.add_argument(
         '--data-dir',
         type=str,
         default='/home/runner/work/teduco-ai/teduco-ai/backend/rag_data',
@@ -88,11 +96,12 @@ Examples:
     
     # Initialize evaluator
     print("\nInitializing evaluator...")
+    print(f"Using evaluation method: {args.judge_type.upper()}")
     print(f"Using RAG data directory: {args.data_dir}")
     
     try:
         from evaluation.evaluator import Evaluator
-        evaluator = Evaluator()
+        evaluator = Evaluator(judge_type=args.judge_type)
         
         # Run evaluation
         save_results = not args.no_save

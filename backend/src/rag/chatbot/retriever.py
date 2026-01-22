@@ -70,9 +70,12 @@ class RetrievalPipeline:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER] This may take 30-120 seconds on first run (downloading model)...")
         start_time = datetime.now()
         
+        # Use environment variable for cache folder, default to home directory if not set
+        cache_folder = os.getenv("HF_HOME", os.path.expanduser("~/.cache/huggingface"))
+        
         self.embeddings = HuggingFaceEmbeddings(
             model_name=embedding_model,
-            cache_folder="/app/.hf_cache",
+            cache_folder=cache_folder,
             encode_kwargs={
                 "normalize_embeddings": True  # VERY IMPORTANT for cosine similarity
             },
