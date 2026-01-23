@@ -1,0 +1,22 @@
+{
+  "user": "ahmet_ozturk",
+  "user_id": "414a8d16-fa19-4f38-a7ab-d9f7031ae0c0",
+  "test_date": "2026-01-22T10:13:39.506954",
+  "conversations": [
+    {
+      "question": "I'm finishing my Computer Engineering degree and I'm really passionate about game development, especially game AI. What master's programs at TUM would be best for me?",
+      "answer": "Based on your background in Computer Engineering and research focus on game AI, I would recommend the Informatics Games Engineering Master of Science MSc program at TUM. This program aligns with your interests and skills, and the aptitude assessment for this program includes topics such as game AI, procedural content generation, and computer graphics, which are relevant to your research focus.\n\nTo learn more about the program and its requirements, I suggest visiting the TUM website: https://www.tum.de/en/studies/during-your-studies/organizing-your-studies/key-words-concerning-your-studies#c2288. Additionally, you can find more information on the application process and deadlines on the TUM website: https://www.tum.de/en/studies/application/application-info-portal/admission-procedures#c10989.",
+      "timestamp": "2026-01-22T10:13:32.737556"
+    },
+    {
+      "question": "What do I need to apply for the Games Engineering Master's program? Is my GPA of 3.45 competitive?",
+      "answer": "To apply for the Games Engineering Master's program at TUM, you will need to undergo an aptitude assessment, which evaluates your qualifications and skills in relation to the field of Informatik: Games Engineering. The assessment includes individual parameters, such as your academic background, research experience, and skills in areas like game AI, procedural content generation, and computer graphics.\n\nRegarding your GPA, it is not explicitly stated in the context whether a GPA of 3.45 is competitive for the program. However, the aptitude assessment will evaluate your qualifications and skills, and the program requires a total of 120 ECTS credits. You can find more information on the application process and requirements on the TUM website: https://www.tum.de/en/studies/application/application-info-portal/admission-procedures#c10989.",
+      "timestamp": "2026-01-22T10:13:37.692077"
+    },
+    {
+      "question": "I graduate in June 2025. Is that too late for Fall 2025 intake?",
+      "answer": "I don't know enough information to answer your question. Please provide more details or contact TUM directly at study@tum.de for detailed assistance.",
+      "timestamp": "2026-01-22T10:13:39.506842"
+    }
+  ]
+}
