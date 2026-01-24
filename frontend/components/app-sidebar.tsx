@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   Home,
   Sparkles,
+  FileEdit,
 } from "lucide-react"
 
 import { NavChats } from "@/components/nav-chats"
@@ -30,6 +31,11 @@ const data = {
       title: "Progress Tracking",
       url: "/progress-tracking",
       icon: Sparkles,
+    },
+    {
+      title: "Edit Letters",
+      url: "/edit",
+      icon: FileEdit,
     },
   ],
 }

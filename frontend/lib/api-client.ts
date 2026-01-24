@@ -125,7 +125,10 @@ class ApiClient {
       }
 
       // All requests go directly to the backend
-      const url = `${this.baseUrl}${endpoint}`
+      // Normalize URL to avoid double slashes
+      const normalizedBase = this.baseUrl.endsWith('/') ? this.baseUrl.slice(0, -1) : this.baseUrl
+      const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+      const url = `${normalizedBase}${normalizedEndpoint}`
       
       const response = await this.fetchWithTimeout(
         url,
@@ -437,6 +440,27 @@ class ApiClient {
 
   async completeOnboarding(data: OnboardingFormValues) {
     return this.post<UserProfile>('/onboarding', data)
+  }
+
+  // ======================
+  // Application Letters API Methods
+  // ======================
+
+  async analyzeApplicationLetter(data: { content: string; programSlug?: string }) {
+    return this.post<{
+      suggestions: Array<{
+        id: string
+        category: string
+        severity: string
+        title: string
+        description: string
+        suggestion: string
+        replacement?: string
+        highlightRange?: { start: number; end: number }
+      }>
+      wordCount: number
+      analysisMetadata?: Record<string, unknown>
+    }>('/letters/analyze', data)
   }
 
   // ======================
