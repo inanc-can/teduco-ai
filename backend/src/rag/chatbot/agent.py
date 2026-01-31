@@ -14,6 +14,7 @@ user-specific data automatically.
 
 import json
 import os
+import re
 import requests
 import traceback
 from typing import List, Optional, Dict, Any
@@ -27,7 +28,13 @@ from langchain_community.vectorstores import FAISS
 
 from db.lib import core as db_core
 from core.dependencies import get_signed_url
-from rag.chatbot.db_ops import retrieve_chunks, list_all_degree_programs
+from rag.chatbot.db_ops import (
+    retrieve_chunks,
+    list_all_degree_programs,
+    retrieve_user_document_chunks,
+    upsert_user_document_chunks,
+    upsert_user_profile_chunks,
+)
 
 # Try to import PDF parser for document processing
 try:
@@ -45,7 +52,7 @@ class Agent:
         retriever_pipeline,
         embeddings,
         k: int = 10,
-        similarity_threshold: float = 0.40,
+        similarity_threshold: float = 0.25,
         semantic_weight: float = 0.5,
         keyword_weight: float = 0.5
     ):
@@ -250,10 +257,37 @@ class Agent:
         print(f"[Agent] Total documents loaded: {len(docs)}")
         return docs
 
+    def _expand_query_for_deadlines(self, question: str) -> str:
+        """Expand query with deadline-related synonyms for better keyword matching.
+
+        If the question is about when to apply, deadlines, or intake periods,
+        add explicit keywords that match the indexed content.
+        """
+        question_lower = question.lower()
+
+        # Check if this is a deadline-related question
+        deadline_triggers = [
+            "when", "apply", "deadline", "intake", "fall", "winter", "summer",
+            "semester", "admission date", "application date", "too late", "time to apply"
+        ]
+
+        if any(trigger in question_lower for trigger in deadline_triggers):
+            # Add explicit keywords that match the indexed content
+            expansion = " application period application deadline when to apply admission deadline"
+            print(f"[AGENT KB SEARCH] Query expanded with deadline keywords")
+            return question + expansion
+
+        return question
+
     # ------------------ Search ------------------
-    def search_kb(self, question: str) -> List[Document]:
-        """Search the knowledge base using Supabase hybrid search (semantic + keyword)."""
-        
+    def search_kb(self, question: str, profile: Optional[Dict[str, Any]] = None) -> List[Document]:
+        """Search the knowledge base using Supabase hybrid search (semantic + keyword).
+
+        Args:
+            question: The user's question
+            profile: Optional user profile dict to infer degree level from education type
+        """
+
         # Check if this is a "list all programs" type query
         question_lower = question.lower()
         
@@ -302,84 +336,82 @@ class Agent:
         print(f"{'='*70}")
         
         try:
-            # 1. Extract degree level from question if present
+            # 1. Extract degree level from question keywords first, then fall back to profile
             degree_level_filter = None
             question_lower = question.lower()
             if "bachelor" in question_lower or "bachelor's" in question_lower or "undergraduate" in question_lower or "bsc" in question_lower:
                 degree_level_filter = "bachelor"
-                print(f"[AGENT KB SEARCH] Detected bachelor degree level")
+                print(f"[AGENT KB SEARCH] Detected bachelor degree level from question keywords")
             elif "master" in question_lower or "master's" in question_lower or "msc" in question_lower or "mse" in question_lower:
                 degree_level_filter = "master"
-                print(f"[AGENT KB SEARCH] Detected master degree level")
+                print(f"[AGENT KB SEARCH] Detected master degree level from question keywords")
+            elif profile:
+                # Infer degree level from user profile's applicant_type
+                # high-school student → looking for Bachelor programs
+                # university student → looking for Master programs
+                user = profile.get("user") or {}
+                applicant_type = user.get("applicant_type", "") if isinstance(user, dict) else ""
+                if applicant_type == "high-school":
+                    degree_level_filter = "bachelor"
+                    print(f"[AGENT KB SEARCH] Inferred bachelor degree level from user profile (high school student)")
+                elif applicant_type == "university":
+                    degree_level_filter = "master"
+                    print(f"[AGENT KB SEARCH] Inferred master degree level from user profile (university student)")
             
-            # 2. Embed the query
+            # 2. Embed the query (original question for semantic search)
             print(f"[AGENT KB SEARCH] Embedding query...")
             query_embedding = self.embeddings.embed_query(question)
-            
-            # 3. Retrieve from Supabase using hybrid search (fetch more for MMR)
-            fetch_k = self.k * 5  # Fetch 5x more candidates for diversity
-            print(f"[AGENT KB SEARCH] Querying Supabase with k={fetch_k} (will apply MMR to select top {self.k})...")
+
+            # 2b. Expand query for keyword search (add synonyms for better matching)
+            expanded_query = self._expand_query_for_deadlines(question)
+
+            # 3. Retrieve from Supabase using hybrid search
+            print(f"[AGENT KB SEARCH] Querying Supabase with k={self.k}...")
             results = retrieve_chunks(
-                query=question,
+                query=expanded_query,
                 query_embedding=query_embedding,
-                top_k=fetch_k,
+                top_k=self.k * 3,  # Fetch extra to allow threshold filtering
                 semantic_weight=self.semantic_weight,
                 keyword_weight=self.keyword_weight,
                 filter_degree_level=degree_level_filter
             )
-            
+
             print(f"[AGENT KB SEARCH] Retrieved {len(results)} chunks from Supabase")
-            
+
             if not results:
-                print("[AGENT KB SEARCH] ✗ No documents retrieved from Supabase!")
+                print("[AGENT KB SEARCH] No documents retrieved from Supabase!")
                 print(f"{'='*70}\n")
                 return []
-            
-            # 3. Filter by threshold first
-            candidate_docs = []
-            candidate_embeddings = []
+
+            # 4. Filter by threshold and take top k
+            selected_docs = []
             for idx, res in enumerate(results, 1):
                 hybrid_score = res.get("hybrid_score", 0.0)
                 similarity = res.get("similarity_score", 0.0)
                 keyword_rank = res.get("keyword_rank", 0.0)
                 content = res.get("content", "")
                 metadata = res.get("metadata") or {}
-                
+
                 if hybrid_score >= self.similarity_threshold:
                     doc = Document(page_content=content, metadata=metadata)
                     doc.metadata['hybrid_score'] = hybrid_score
                     doc.metadata['similarity_score'] = similarity
-                    candidate_docs.append(doc)
-                    # Embed the document for MMR
-                    doc_embedding = self.embeddings.embed_query(content)
-                    candidate_embeddings.append(doc_embedding)
-            
-            print(f"[AGENT KB SEARCH] {len(candidate_docs)}/{len(results)} documents above threshold ({self.similarity_threshold})")
-            
-            if not candidate_docs:
-                print("[AGENT KB SEARCH] ✗ No documents above threshold!")
+                    selected_docs.append(doc)
+                    source = metadata.get('source', 'unknown')
+                    section = metadata.get('section', 'N/A')
+                    print(f"[AGENT KB SEARCH]   [{idx}] score={hybrid_score:.4f} sem={similarity:.4f} kw={keyword_rank:.4f} {source} - {section}")
+
+                if len(selected_docs) >= self.k:
+                    break
+
+            print(f"[AGENT KB SEARCH] {len(selected_docs)} documents above threshold ({self.similarity_threshold})")
+
+            if not selected_docs:
+                print("[AGENT KB SEARCH] No documents above threshold!")
                 print(f"{'='*70}\n")
                 return []
-            
-            # 4. Apply MMR for diversity
-            print(f"[AGENT KB SEARCH] Applying MMR (lambda=0.5) to select diverse top {self.k} documents...")
-            selected_docs = self._mmr_selection(
-                query_embedding=query_embedding,
-                documents=candidate_docs,
-                doc_embeddings=candidate_embeddings,
-                k=min(self.k, len(candidate_docs)),
-                lambda_mult=0.5  # Balance between relevance and diversity
-            )
-            
-            # Log selected documents
-            for idx, doc in enumerate(selected_docs, 1):
-                source = doc.metadata.get('source', 'unknown')
-                section = doc.metadata.get('section', 'N/A')
-                hybrid_score = doc.metadata.get('hybrid_score', 0.0)
-                similarity = doc.metadata.get('similarity_score', 0.0)
-                print(f"[AGENT KB SEARCH]   [{idx}] ✓ MMR Selected: {source} - {section} (Hybrid: {hybrid_score:.4f}, Sem: {similarity:.4f})")
-            
-            print(f"[AGENT KB SEARCH] ✓ Returning {len(selected_docs)} diverse documents")
+
+            print(f"[AGENT KB SEARCH] Returning {len(selected_docs)} documents")
             print(f"{'='*70}\n")
             return selected_docs
             
@@ -465,50 +497,73 @@ class Agent:
         # Return documents in MMR-selected order
         return [documents[i] for i in selected_indices]
 
+    def search_user_docs_supabase(self, question: str, user_id: str) -> List[Document]:
+        """Search user documents via Supabase hybrid search (pre-embedded chunks).
+
+        This replaces the old FAISS-based approach. User documents are embedded
+        at upload time and stored in rag_user_documents, so search is fast.
+        """
+        if not user_id:
+            return []
+        try:
+            print(f"[Agent] Searching user documents in Supabase for user {user_id}...")
+            query_embedding = self.embeddings.embed_query(question)
+
+            results = retrieve_user_document_chunks(
+                user_id=user_id,
+                query=question,
+                query_embedding=query_embedding,
+                top_k=self.k,
+                semantic_weight=self.semantic_weight,
+                keyword_weight=self.keyword_weight,
+            )
+
+            if not results:
+                print(f"[Agent] No user document chunks found in Supabase")
+                return []
+
+            docs = []
+            for r in results:
+                hybrid_score = r.get("hybrid_score", 0.0)
+                if hybrid_score >= max(self.similarity_threshold - 0.1, 0.1):
+                    doc = Document(
+                        page_content=r.get("content", ""),
+                        metadata=r.get("metadata") or {}
+                    )
+                    doc.metadata["doc_type"] = r.get("doc_type", "document")
+                    doc.metadata["hybrid_score"] = hybrid_score
+                    docs.append(doc)
+                    print(f"[Agent] User doc score={hybrid_score:.4f} type={r.get('doc_type', 'unknown')}")
+
+            print(f"[Agent] Returning {len(docs)} user document chunks")
+            return docs
+
+        except Exception:
+            print("[Agent] Error in search_user_docs_supabase:")
+            traceback.print_exc()
+            return []
+
     def search_user_docs(self, question: str, user_docs: List[Document]) -> List[Document]:
-        """
-        Build a FAISS vector store from user docs and perform similarity search.
-        Uses the same approach as KB search for consistency and determinism.
-        """
+        """Fallback: build FAISS from in-memory user docs if Supabase search unavailable."""
         if not user_docs:
             return []
         try:
-            print(f"[Agent] Building FAISS index for {len(user_docs)} user documents...")
-            # Create a temporary FAISS vector store for user documents
+            print(f"[Agent] Building FAISS index for {len(user_docs)} user documents (fallback)...")
             user_vector_store = FAISS.from_documents(
                 documents=user_docs,
                 embedding=self.embeddings
             )
-            
-            # Perform similarity search with scores (same as KB search)
             results_with_scores = user_vector_store.similarity_search_with_score(
-                question,
-                k=self.k
+                question, k=self.k
             )
-            
-            print(f"[Agent] User doc search returned {len(results_with_scores)} results")
-            
-            # Filter by threshold and sort deterministically
-            scored_filtered_docs = []
+            docs = []
             for doc, score in results_with_scores:
-                # Convert L2 distance to similarity (same as KB retrieval)
                 similarity = 1 / (1 + score)
-                
-                if similarity >= self.similarity_threshold:
-                    scored_filtered_docs.append((doc, similarity))
-                    print(f"[Agent] ✓ User doc similarity: {similarity:.4f} - {doc.metadata.get('doc_type', 'unknown')}")
-                else:
-                    print(f"[Agent] ✗ User doc similarity: {similarity:.4f} - below threshold {self.similarity_threshold}")
-            
-            # Sort deterministically by similarity (descending), then by doc_type
-            scored_filtered_docs.sort(key=lambda x: (-x[1], str(x[0].metadata.get('doc_type', ''))))
-            filtered_docs = [doc for doc, _sim in scored_filtered_docs]
-            
-            print(f"[Agent] Returning {len(filtered_docs)}/{len(results_with_scores)} user docs above threshold")
-            return filtered_docs
-            
+                if similarity >= max(self.similarity_threshold - 0.1, 0.1):
+                    docs.append(doc)
+            return docs
         except Exception:
-            print("[Agent] Error in search_user_docs:")
+            print("[Agent] Error in search_user_docs fallback:")
             traceback.print_exc()
             return []
 
@@ -639,6 +694,22 @@ class Agent:
         
         return context_text
 
+    # Varied fallback responses when no context is available
+    _NO_CONTEXT_RESPONSES = [
+        "I wasn't able to find specific information about that in my knowledge base. "
+        "You might want to check TUM's official website or reach out to study@tum.de for details.",
+
+        "That's a great question, but I don't have the specific data to answer it accurately. "
+        "For the most up-to-date information, I'd suggest contacting TUM's admissions office at study@tum.de.",
+
+        "I don't have enough information in my documents to give you a reliable answer on that. "
+        "TUM's student services (study@tum.de) would be the best resource for this.",
+
+        "Unfortunately, my knowledge base doesn't cover that particular topic well enough to give you a confident answer. "
+        "I'd recommend checking directly with TUM at study@tum.de.",
+    ]
+    _no_context_idx = 0
+
     def final_answer(self, question: str, profile: Dict[str, Any], kb_docs: List[Document], user_docs: List[Document], chat_history: Optional[List[Dict[str, str]]] = None) -> str:
         print(f"\n{'='*70}")
         print("[AGENT] Generating final answer...")
@@ -646,88 +717,63 @@ class Agent:
         print(f"  Chat history length: {len(chat_history) if chat_history else 0}")
         print(f"{'='*70}\n")
 
-        def extract_language_requirement(docs: List[Document]):
-            """Look for a line containing 'Required Language Proficiency:' and return its value and metadata."""
-            for doc in docs:
-                text = doc.page_content or ""
-                for line in text.splitlines():
-                    if "Required Language Proficiency" in line:
-                        parts = line.split(":", 1)
-                        if len(parts) == 2:
-                            value = parts[1].strip()
-                            if value:
-                                return value, doc.metadata
-            return None
-        
-        # Build prompt with clear, simple instructions
+        # Build the education consultant system prompt
         system = (
-            "You are a helpful university admissions advisor for TUM (Technical University of Munich).\n\n"
-            
-            "INSTRUCTIONS:\n"
-            "1. Answer the user's question using the information in the CONTEXT below\n"
-            "2. If the answer is clearly stated in the context, provide it\n"
-            "3. Only say 'I don't have information' if the context truly doesn't contain an answer\n"
-            "4. Be concise (2-4 sentences)\n"
-            "5. Include relevant links from the context\n\n"
-            
-            "The CONTEXT has 3 sections:\n"
-            "- USER PROFILE: The user's background\n"
-            "- USER DOCUMENTS: Uploaded files (CV, transcripts)\n"
-            "- TUM KNOWLEDGE BASE: Official TUM program information\n\n"
-            
-            "Extract facts directly from the context and present them clearly."
-        )
-        context = self.compile_context_text(profile, kb_docs, user_docs)
-        
-        # Check if we have any KB documents or user documents - if not, return "I don't know"
-        if not kb_docs and not user_docs:
-            print(f"\n{'='*70}")
-            print("[AGENT] ✗ No KB documents or user documents available")
-            print(f"{'='*70}\n")
-            
-            answer = "I don't know enough information to answer your question. Please provide more details or contact TUM directly at study@tum.de for detailed assistance."
-            
-            print(f"\n{'='*70}")
-            print("[AGENT] ✓ Answer generated (fallback - no context available):")
-            print(f"{'='*70}")
-            print(answer)
-            print(f"{'='*70}\n")
-            
-            return answer
+            "You are a knowledgeable education consultant specializing in TUM (Technical University of Munich) admissions.\n\n"
 
-        # Deterministic shortcut: if KB docs include a Required Language Proficiency line, answer directly
-        lang_hit = extract_language_requirement(kb_docs)
-        if lang_hit:
-            value, meta = lang_hit
-            source = meta.get('source', 'knowledge base') if isinstance(meta, dict) else 'knowledge base'
-            section = meta.get('section', '') if isinstance(meta, dict) else ''
-            answer = f"The Informatics Bachelor of Science (BSc) at TUM requires {value}. (Source: {source}{' - ' + section if section else ''})"
-            print(f"\n{'='*70}")
-            print("[AGENT] ✓ Answer generated (deterministic language requirement):")
-            print(f"{'='*70}")
-            print(answer)
-            print(f"{'='*70}\n")
+            "YOUR ROLE:\n"
+            "- You are NOT a generic chatbot. You are an expert consultant with access to official TUM documentation.\n"
+            "- Always cite your sources: 'According to TUM's [program name] documentation...'\n"
+            "- When comparing a student's qualifications to requirements, be specific and direct.\n"
+            "- Give concrete, actionable advice rather than vague suggestions.\n\n"
+
+            "HOW TO USE THE CONTEXT:\n"
+            "The context below has up to 3 sections:\n"
+            "- USER PROFILE: The student's background (education, GPA, research, preferences)\n"
+            "- USER DOCUMENTS: Content from their uploaded files (CV, transcripts)\n"
+            "- TUM KNOWLEDGE BASE: Official program information (requirements, deadlines, details)\n\n"
+
+            "RESPONSE GUIDELINES:\n"
+            "1. ALWAYS reference the specific program and source when stating facts.\n"
+            "   Good: 'According to TUM's Games Engineering MSc requirements, you need...'\n"
+            "   Bad: 'Generally, master's programs require...'\n"
+            "2. When the student's profile is available, COMPARE their qualifications against requirements.\n"
+            "   Good: 'Your GPA of 3.45 meets the threshold for this program.'\n"
+            "   Bad: 'A good GPA is usually required.'\n"
+            "3. Keep answers focused but thorough (3-6 sentences). Use bullet points for lists.\n"
+            "4. If the context doesn't contain the answer, say so naturally and suggest where to find it.\n"
+            "5. Never invent requirements, deadlines, or facts not present in the context.\n"
+            "6. Reference the student by name if available.\n"
+        )
+
+        context = self.compile_context_text(profile, kb_docs, user_docs)
+
+        # No context at all - use varied fallback
+        if not kb_docs and not user_docs:
+            Agent._no_context_idx = (Agent._no_context_idx + 1) % len(Agent._NO_CONTEXT_RESPONSES)
+            answer = Agent._NO_CONTEXT_RESPONSES[Agent._no_context_idx]
+            print(f"[AGENT] No context available, using fallback response")
             return answer
 
         human_prompt = (
-            "CONTEXT:\n" + (context or "No context available") + "\n\n" +
-            ("CHAT HISTORY:\n" + "\n".join([f"{m['role']}: {m['content']}" for m in (chat_history or [])]) + "\n\n" if chat_history else "") +
-            "QUESTION:\n" + question + "\n\n" +
-            "Provide a personalized, helpful answer based on the context above."
+            "CONTEXT:\n" + (context or "No context available") + "\n\n"
+        )
+        if chat_history:
+            human_prompt += "RECENT CONVERSATION:\n" + "\n".join(
+                [f"{m['role'].upper()}: {m['content']}" for m in (chat_history or [])[-6:]]
+            ) + "\n\n"
+        human_prompt += (
+            "STUDENT'S QUESTION:\n" + question + "\n\n"
+            "Provide a specific, well-cited answer. Reference program names and sources. "
+            "Compare the student's qualifications to requirements when relevant."
         )
 
         try:
-            print(f"\n{'='*70}")
-            print("[AGENT] Sending prompt to LLM...")
-            print(f"{'='*70}\n")
-            
-            # Use invoke() with SystemMessage and HumanMessage
             resp = self.llm.invoke([
                 SystemMessage(content=system),
                 HumanMessage(content=human_prompt)
-            ], temperature=0.1)  # Slightly above 0 to reduce over-cautiousness
-            
-            # Extract textual content safely
+            ], temperature=0.2)
+
             if hasattr(resp, 'content'):
                 content = resp.content
                 if content is None:
@@ -735,18 +781,51 @@ class Agent:
                 answer = content.strip()
             else:
                 answer = str(resp).strip()
-            
-            print(f"\n{'='*70}")
-            print("[AGENT] ✓ Answer generated:")
-            print(f"{'='*70}")
-            print(answer)
-            print(f"{'='*70}\n")
-            
+
+            print(f"[AGENT] Answer generated ({len(answer)} chars)")
             return answer
         except Exception as e:
-            print(f"\n[AGENT] ✗ Error generating answer:")
+            print(f"[AGENT] Error generating answer: {e}")
             traceback.print_exc()
             return f"Error generating answer: {str(e)}"
+
+    # ------------------ Input Guard ------------------
+    JAILBREAK_PATTERNS = [
+        r"ignore\s+(all\s+)?(previous|above|prior|earlier)\s+(instructions|prompts|rules|context)",
+        r"forget\s+(everything|all|your|the)\s*(instructions|rules|prompts|context)?",
+        r"disregard\s+(all\s+)?(previous|above|prior|your)\s*(instructions|prompts|rules)",
+        r"you\s+are\s+now\s+(?!a\s+(tum|university|admissions))",
+        r"pretend\s+(you\s+are|to\s+be|you're)",
+        r"act\s+as\s+(if\s+you\s+are|a\s+(?!university|admissions|tum))",
+        r"from\s+now\s+on[,]?\s+you",
+        r"new\s+instructions?\s*:",
+        r"\[system\s*(update|message|prompt|override)\]",
+        r"override\s+(your|the|all)\s*(system|instructions|rules|prompt)",
+        r"repeat\s+(your|the|all)\s*(system\s*)?(instructions|prompt|rules)",
+        r"output\s+(your|the)\s*(system\s*)?(prompt|instructions|rules)",
+        r"reveal\s+(your|the)\s*(system\s*)?(prompt|instructions|rules)",
+        r"what\s+(are|is)\s+your\s+(system\s*)?(prompt|instructions|rules)",
+        r"do\s+not\s+use\s+(the\s+)?(context|knowledge\s*base)",
+        r"stop\s+being\s+(a\s+)?(university|admissions|tum)",
+    ]
+
+    REJECTION_MESSAGE = (
+        "I'm sorry, but your message appears to contain instructions that attempt to alter my behavior. "
+        "I am a TUM admissions advisor and can only help with questions about TUM degree programs, "
+        "admissions requirements, and application processes. Please rephrase your question."
+    )
+
+    def _detect_prompt_injection(self, text: str) -> bool:
+        """Check if the input text contains prompt injection patterns.
+
+        Returns True if a jailbreak attempt is detected, False otherwise.
+        """
+        text_lower = text.lower()
+        for pattern in self.JAILBREAK_PATTERNS:
+            if re.search(pattern, text_lower):
+                print(f"[AGENT GUARD] ⚠ Prompt injection detected! Pattern matched: {pattern}")
+                return True
+        return False
 
     # ------------------ Run ------------------
     def run(self, question: str, user_id: Optional[str] = None, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
@@ -755,57 +834,78 @@ class Agent:
         print(f"[AGENT RUN] Starting agentic RAG for question: {question}")
         print(f"  User ID: {user_id or 'None (unauthenticated)'}")
         print(f"{'='*70}\n")
-        
-        # Step 1: try to fetch a minimal profile summary (non-blocking)
+
+        # Step 0: Input guard
+        if self._detect_prompt_injection(question):
+            print(f"[AGENT RUN] Blocked: prompt injection detected")
+            return self.REJECTION_MESSAGE
+
+        # Step 1: Always fetch profile for authenticated users
         profile = {}
         if user_id:
             profile = self.fetch_user_profile(user_id)
 
-        # Step 2: plan
+        # Step 2: Build a richer profile summary for the planner
         profile_summary = None
-        if profile:
-            # small summary string
-            try:
-                profile_summary = profile.get("user", {}).get("first_name") or ""
-            except Exception:
-                profile_summary = None
+        if profile and profile.get("user"):
+            user = profile.get("user", {})
+            edu = profile.get("education", {})
+            prefs = profile.get("preferences", {})
+            parts = []
+            if user.get("first_name"):
+                parts.append(f"Name: {user.get('first_name')} {user.get('last_name', '')}")
+            if user.get("applicant_type"):
+                parts.append(f"Type: {user.get('applicant_type')}")
+            if edu:
+                if edu.get("type") == "university":
+                    parts.append(f"Studies: {edu.get('university_program', '')} at {edu.get('university_name', '')}")
+                    if edu.get("gpa"):
+                        parts.append(f"GPA: {edu.get('gpa')}")
+                    if edu.get("research_focus"):
+                        parts.append(f"Research: {edu.get('research_focus')}")
+                elif edu.get("type") == "high-school":
+                    parts.append(f"School: {edu.get('high_school_name', '')}")
+                    if edu.get("gpa"):
+                        parts.append(f"GPA: {edu.get('gpa')}/{edu.get('gpa_scale', '')}")
+            if prefs.get("desired_fields"):
+                parts.append(f"Fields: {', '.join(prefs.get('desired_fields', []))}")
+            profile_summary = "; ".join(parts) if parts else None
 
         actions = self.plan_actions(question, profile_summary)
         print(f"[AGENT RUN] Planned actions: {actions}")
 
-        # Step 3: perform actions
+        # Step 3: Always search KB for authenticated education queries
         kb_docs = []
         user_docs = []
 
-        if "fetch_user_docs" in actions or "search_user_docs" in actions:
-            print(f"[AGENT RUN] Fetching user documents...")
-            user_docs = self.fetch_user_documents(user_id) if user_id else []
-            print(f"[AGENT RUN] Fetched {len(user_docs)} user documents\n")
-
-        if "search_kb" in actions:
+        # Always search KB (the core value of this chatbot)
+        if "search_kb" in actions or user_id:
             print(f"[AGENT RUN] Searching knowledge base...")
-            kb_docs = self.search_kb(question)
+            kb_docs = self.search_kb(question, profile=profile)
             print(f"[AGENT RUN] KB search returned {len(kb_docs)} documents\n")
-        else:
-            print(f"[AGENT RUN] ⚠ 'search_kb' not in actions - KB will not be consulted!\n")
 
-        if "search_user_docs" in actions and user_docs:
-            print(f"[AGENT RUN] Performing vector search on user documents...")
-            # refine user doc search
-            user_docs = self.search_user_docs(question, user_docs)
-            print(f"[AGENT RUN] User doc search returned {len(user_docs)} relevant documents\n")
+        # Search user docs via Supabase if user is authenticated
+        if user_id and ("fetch_user_docs" in actions or "search_user_docs" in actions):
+            print(f"[AGENT RUN] Searching user documents in Supabase...")
+            user_docs = self.search_user_docs_supabase(question, user_id)
+            if not user_docs:
+                # Fallback: fetch and search in memory
+                print(f"[AGENT RUN] No Supabase user docs, trying in-memory fallback...")
+                raw_docs = self.fetch_user_documents(user_id)
+                if raw_docs:
+                    user_docs = self.search_user_docs(question, raw_docs)
+            print(f"[AGENT RUN] User doc search returned {len(user_docs)} documents\n")
 
-        # Always include 'answer' as last step
         print(f"[AGENT RUN] Generating final answer with:")
-        print(f"  - Profile: {'Yes' if profile else 'No'}")
+        print(f"  - Profile: {'Yes' if profile.get('user') else 'No'}")
         print(f"  - KB docs: {len(kb_docs)}")
         print(f"  - User docs: {len(user_docs)}")
         print(f"  - Chat history: {len(chat_history) if chat_history else 0} messages\n")
-        
+
         answer = self.final_answer(question, profile, kb_docs, user_docs, chat_history)
-        
+
         print(f"\n{'='*70}")
-        print(f"[AGENT RUN] ✓ Completed")
+        print(f"[AGENT RUN] Completed")
         print(f"{'='*70}\n")
-        
+
         return answer
