@@ -80,7 +80,7 @@ class RetrievalPipeline:
         )
         
         elapsed = (datetime.now() - start_time).total_seconds()
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER] ✓ Embedding model loaded in {elapsed:.2f}s")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [RETRIEVER] [OK] Embedding model loaded in {elapsed:.2f}s")
         # self.text_splitter = RecursiveTextSplitter()
         self.text_splitter = RecursiveTextSplitter(
             chunk_size=chunk_size,
@@ -143,7 +143,7 @@ class RetrievalPipeline:
                         print(f"        Preview: {doc.page_content[:200]}...")
         
         self.split_docs = all_chunks
-        print(f"  [RETRIEVER] ✓ Split into {len(all_chunks)} chunks")
+        print(f"  [RETRIEVER] [OK] Split into {len(all_chunks)} chunks")
         
         # Create embeddings and vector store
         print(f"  [RETRIEVER] ⏳ Generating embeddings (this may take a moment)...")
@@ -152,7 +152,7 @@ class RetrievalPipeline:
             embedding=self.embeddings
         )
         
-        print(f"  [RETRIEVER] ✓ Vector store created with {len(all_chunks)} vectors")
+        print(f"  [RETRIEVER] [OK] Vector store created with {len(all_chunks)} vectors")
         return self.vector_store
     
     def get_retriever(self, search_type: str = "similarity"):
@@ -173,7 +173,7 @@ class RetrievalPipeline:
             search_kwargs={"k": self.k}
         )
         
-        print(f"  [RETRIEVER] ✓ Retriever configured (k={self.k})")
+        print(f"  [RETRIEVER] [OK] Retriever configured (k={self.k})")
         return retriever
     
     def save_vector_store(self, path: str) -> None:
@@ -190,7 +190,7 @@ class RetrievalPipeline:
         save_path.mkdir(parents=True, exist_ok=True)
         
         self.vector_store.save_local(str(save_path))
-        print(f"  [RETRIEVER] ✓ Vector store saved to {save_path}")
+        print(f"  [RETRIEVER] [OK] Vector store saved to {save_path}")
     
     def load_vector_store(self, path: str) -> None:
         """
@@ -210,5 +210,5 @@ class RetrievalPipeline:
             allow_dangerous_deserialization=True
         )
         
-        print(f"  [RETRIEVER] ✓ Vector store loaded from {load_path}")
+        print(f"  [RETRIEVER] [OK] Vector store loaded from {load_path}")
 
