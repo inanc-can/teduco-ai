@@ -57,13 +57,13 @@ class RAGChatbotPipeline:
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         k: int = 10,
-        similarity_threshold: float = 0.40,
-        semantic_weight: float = 0.7,
-        keyword_weight: float = 0.3
+        similarity_threshold: float = 0.25,
+        semantic_weight: float = 0.5,
+        keyword_weight: float = 0.5
     ):
         """
         Initialize the RAG chatbot pipeline.
-        
+
         Args:
             data_dir: Directory for crawled data
             vector_store_dir: Directory to save/load vector store (optional)
@@ -75,11 +75,9 @@ class RAGChatbotPipeline:
             chunk_overlap: Chunk overlap
             k: Number of documents to retrieve
             similarity_threshold: Minimum hybrid score (0-1) to use a document.
-                                 Documents below this threshold are filtered out.
-                                 Default: 0.40 (balanced). 
-                                 Recommended: 0.35-0.55 for most cases.
-            semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.7)
-            keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.3)
+                                 Lowered from 0.40 to 0.25 for multilingual embeddings.
+            semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.5)
+            keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.5)
         """
         self.data_dir = data_dir
         self.vector_store_dir = vector_store_dir or f"{data_dir}/vector_store"
@@ -134,7 +132,7 @@ class RAGChatbotPipeline:
         self.llm = ChatGroq(
             model=self.model_name,
             temperature=0,
-            max_tokens=512,  # Reduced for faster, shorter responses
+            max_tokens=1024,  # Allow detailed consultant-style responses
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
         
@@ -142,21 +140,14 @@ class RAGChatbotPipeline:
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a university admissions advisor for the Technical University of Munich (TUM).
+            ("system", """You are a knowledgeable education consultant specializing in TUM (Technical University of Munich) admissions.
 
-You must ONLY use information from the CONTEXT section below to answer questions. Do NOT use any external knowledge or make up information.
-
-STRICT RULES:
-1. ONLY answer based on the retrieved context - never invent or assume information
-2. Keep answers SHORT and CONCISE (2-3 sentences when possible)
-3. Extract only the most relevant information from the context
-4. Include key details (dates, deadlines, requirements) but be brief
-5. Use bullet points for lists to save space
-6. If the context does not contain relevant information to answer the question, respond EXACTLY with:
-   "I don't have specific information about that in my knowledge base. Please contact TUM directly at study@tum.de for more detailed assistance."
-7. If the context section is empty, always redirect to study@tum.de
-8. Use the conversation history to understand the user's context and refer back to previous topics when relevant
-9. Never guess or provide unverified information
+INSTRUCTIONS:
+1. Answer using ONLY the context below. Never invent facts.
+2. Always cite the source: "According to TUM's [program] documentation..."
+3. Be specific with dates, deadlines, requirements, and program names.
+4. Keep answers focused (3-5 sentences). Use bullet points for lists.
+5. If the context doesn't contain the answer, say so naturally and suggest contacting study@tum.de.
 
 === CONTEXT FROM DOCUMENTS ===
 {context}"""),
@@ -345,22 +336,21 @@ def initialize_rag_pipeline(
     vector_store_dir: Optional[str] = None,
     use_cache: bool = True,
     program_slugs: Optional[List[str]] = None,
-    similarity_threshold: float = 0.40,
-    semantic_weight: float = 0.7,
-    keyword_weight: float = 0.3
+    similarity_threshold: float = 0.25,
+    semantic_weight: float = 0.5,
+    keyword_weight: float = 0.5
 ) -> RAGChatbotPipeline:
     """
     Initialize the RAG pipeline (convenience function).
-    
+
     Args:
         data_dir: Directory for crawled data
         vector_store_dir: Directory for vector store
         use_cache: Use cached data if available
         program_slugs: List of program slugs to load
-        similarity_threshold: Minimum hybrid score (0-1) to use a document.
-                             Documents below this are filtered out. Default: 0.40
-        semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.7)
-        keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.3)
+        similarity_threshold: Minimum hybrid score (0-1) to use a document. Default: 0.25
+        semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.5)
+        keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.5)
         
     Returns:
         Initialized RAGChatbotPipeline instance
