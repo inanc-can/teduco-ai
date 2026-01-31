@@ -36,6 +36,10 @@ def _embed_user_document_background(user_id: str, file_content: bytes, filename:
         elif mime_type in ["text/plain", "text/markdown"] or filename.lower().endswith((".txt", ".md")):
             text = file_content.decode("utf-8", errors="replace")
 
+        # Strip null bytes that PostgreSQL cannot store
+        if text:
+            text = text.replace("\x00", "")
+
         if not text or len(text.strip()) < 10:
             print(f"[DOC EMBED] No text extracted from {filename}, skipping embedding")
             return
@@ -48,10 +52,12 @@ def _embed_user_document_background(user_id: str, file_content: bytes, filename:
             for chunk in chunks
         ]
 
-        # Embed
+        # Embed (use /app/.hf_cache in Docker, fallback to ~/.cache/huggingface locally)
+        import pathlib
+        cache_dir = "/app/.hf_cache" if pathlib.Path("/app/.hf_cache").exists() else None
         embeddings_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            cache_folder="/app/.hf_cache",
+            **({"cache_folder": cache_dir} if cache_dir else {}),
             encode_kwargs={"normalize_embeddings": True},
             model_kwargs={"device": "cpu"},
         )

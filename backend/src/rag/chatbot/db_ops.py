@@ -146,9 +146,13 @@ def upsert_user_document_chunks(
 
     rows = []
     for doc, emb in zip(docs, embeddings):
+        # Strip null bytes that PostgreSQL cannot store in text columns
+        content = doc.page_content.replace("\x00", "") if doc.page_content else ""
+        if not content.strip():
+            continue
         rows.append({
             "user_id": user_id,
-            "content": doc.page_content,
+            "content": content,
             "embedding": emb,
             "metadata": doc.metadata,
             "doc_type": doc_type,
@@ -196,9 +200,12 @@ def upsert_user_profile_chunks(
 
     rows = []
     for doc, emb in zip(docs, embeddings):
+        content = doc.page_content.replace("\x00", "") if doc.page_content else ""
+        if not content.strip():
+            continue
         rows.append({
             "user_id": user_id,
-            "content": doc.page_content,
+            "content": content,
             "embedding": emb,
             "metadata": doc.metadata,
         })
