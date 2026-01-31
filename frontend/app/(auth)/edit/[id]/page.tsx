@@ -54,6 +54,7 @@ export default function LetterEditorPage({
   const [content, setContent] = useState(SAMPLE_LETTER);
   const [selectedProgram, setSelectedProgram] = useState<string>(MOCK_PROGRAMS[0].id);
   const [highlightedSuggestionId, setHighlightedSuggestionId] = useState<string | null>(null);
+  const [animatedRange, setAnimatedRange] = useState<{start: number, end: number} | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const highlightLayerRef = useRef<HTMLDivElement>(null);
 
@@ -174,6 +175,11 @@ export default function LetterEditorPage({
     const replacement = suggestion.replacement ?? original;
     
     const newContent = before + replacement + after;
+    
+    // Animate the changed text for visual feedback
+    setAnimatedRange({ start, end: start + replacement.length });
+    setTimeout(() => setAnimatedRange(null), 2000);
+    
     updateContent(newContent);
     
     // Mark this suggestion as applied so it can be filtered out
@@ -413,11 +419,12 @@ export default function LetterEditorPage({
 
                   // Add highlighted text
                   const isFlashing = highlightedSuggestionId === highlight.id;
+                  
                   segments.push(
                     <span
                       key={`highlight-${highlight.id}`}
                       className={cn(
-                        'relative',
+                        'relative transition-all duration-300',
                         highlight.severity === 'warning' && 'bg-yellow-200/40',
                         highlight.severity === 'info' && 'bg-blue-200/40',
                         highlight.severity === 'success' && 'bg-green-200/40',
@@ -450,6 +457,23 @@ export default function LetterEditorPage({
                 return segments;
               })()}
             </div>
+
+            {/* Animation Layer (for showing changes) */}
+            {animatedRange && (
+              <div
+                className="absolute inset-0 pointer-events-none overflow-hidden whitespace-pre-wrap overflow-wrap-break-word font-mono text-sm leading-relaxed p-3 border rounded-md"
+                style={{
+                  color: 'transparent',
+                  caretColor: 'transparent',
+                }}
+              >
+                <span>{content.substring(0, animatedRange.start)}</span>
+                <span className="animate-flash-green">
+                  {content.substring(animatedRange.start, animatedRange.end)}
+                </span>
+                <span>{content.substring(animatedRange.end)}</span>
+              </div>
+            )}
 
             {/* Textarea */}
             <Textarea
@@ -531,6 +555,11 @@ export default function LetterEditorPage({
                     <>
                       <Loader2Icon className="h-8 w-8 mx-auto mb-2 animate-spin opacity-50" />
                       <p>Analyzing your letter...</p>
+                    </>
+                  ) : analysisStatus === 'idle' ? (
+                    <>
+                      <Loader2Icon className="h-8 w-8 mx-auto mb-2 animate-spin opacity-50" />
+                      <p>Waiting for analysis...</p>
                     </>
                   ) : analysisStatus === 'error' ? (
                     <>

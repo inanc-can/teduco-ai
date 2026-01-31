@@ -146,6 +146,11 @@ For each issue provide:
 - originalText: EXACT text from letter with the issue (5-10+ words for context)
 - replacement: Corrected text (only for grammar/spelling fixes, null otherwise)
 
+IMPORTANT PROGRAM NAME MATCHING:
+- Different variations of the same program name are ACCEPTABLE (e.g., "Informatics Bachelor", "Bachelor of Informatics", "Informatics BSc", "Informatics Bachelor of Science")
+- ONLY flag as critical if the applicant mentions a COMPLETELY DIFFERENT program (e.g., writing about "Mathematics" when applying to "Informatics")
+- Shortened or alternative versions of the correct program name are NOT errors
+
 CRITICAL: 
 - If wrong program mentioned, return originalText with the COMPLETE sentence containing wrong name
 - For spelling errors, include full word + surrounding words
@@ -155,15 +160,20 @@ CRITICAL:
 """
 
         # Build user message parts
-        program_context_text = f"PROGRAM CONTEXT:\n{program_context}\n\n" if program_context else ""
-        user_profile_text = f"USER PROFILE:\n{user_profile}\n\n" if user_profile else ""
+        program_context_text = f"PROGRAM CONTEXT (for reference only, do not analyze):\n{program_context}\n\n" if program_context else ""
+        user_profile_text = f"USER PROFILE (metadata only, do not analyze):\n{user_profile}\n\n" if user_profile else ""
         
         user_message = f"""Please analyze this application letter:
 
-{program_context_text}{user_profile_text}APPLICATION LETTER ({word_count} words):
+{program_context_text}{user_profile_text}APPLICATION LETTER TO ANALYZE ({word_count} words):
+--- START OF LETTER ---
 {content}
+--- END OF LETTER ---
 
 TARGET PROGRAM: {request.program_slug}
+
+IMPORTANT: Only analyze the text between "START OF LETTER" and "END OF LETTER" markers.
+Do NOT analyze the PROGRAM CONTEXT or USER PROFILE sections above - these are metadata for your reference.
 
 Analyze this letter comprehensively. Pay special attention to:
 1. Is the applicant writing about the CORRECT program ({request.program_slug})?
