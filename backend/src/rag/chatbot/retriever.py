@@ -146,7 +146,7 @@ class RetrievalPipeline:
         print(f"  [RETRIEVER] [OK] Split into {len(all_chunks)} chunks")
         
         # Create embeddings and vector store
-        print(f"  [RETRIEVER] ⏳ Generating embeddings (this may take a moment)...")
+        print(f"  [RETRIEVER] [...] Generating embeddings (this may take a moment)...")
         self.vector_store = FAISS.from_documents(
             documents=all_chunks,
             embedding=self.embeddings

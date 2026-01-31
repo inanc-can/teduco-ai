@@ -178,7 +178,7 @@ class Agent:
             conversion = parser.convert_document(pdf_bytes, name=filename)
             markdown_text = parser.conversion_to_markdown(conversion)
             if markdown_text and len(markdown_text.strip()) > 0:
-                print(f"[Agent] ✓ Parsed PDF {filename}: {len(markdown_text)} chars")
+                print(f"[Agent] [OK] Parsed PDF {filename}: {len(markdown_text)} chars")
                 return markdown_text
         except Exception as e:
             print(f"[Agent] Failed to parse PDF {filename}: {e}")
@@ -243,7 +243,7 @@ class Agent:
                         "mime_type": mime_type,
                     }
                     docs.append(Document(page_content=text, metadata=metadata))
-                    print(f"[Agent] ✓ Loaded document: {doc_type} ({len(text)} chars)")
+                    print(f"[Agent] [OK] Loaded document: {doc_type} ({len(text)} chars)")
                     
                 except Exception as e:
                     print(f"[Agent] Error processing document {storage_path}: {e}")
@@ -416,7 +416,7 @@ class Agent:
             return selected_docs
             
         except Exception as e:
-            print(f"[AGENT KB SEARCH] ✗ Exception during search: {e}")
+            print(f"[AGENT KB SEARCH] [FAIL] Exception during search: {e}")
             traceback.print_exc()
             print(f"{'='*70}\n")
             return []
@@ -591,7 +591,7 @@ class Agent:
         # This helps the agent understand WHO the user is
         # ============================================================
         if profile and profile.get("user"):
-            print("[AGENT CONTEXT] ✓ USER PROFILE available")
+            print("[AGENT CONTEXT] [OK] USER PROFILE available")
             user = profile.get("user")
             profile_lines = []
             
@@ -649,14 +649,14 @@ class Agent:
             
             parts.append("=== USER PROFILE ===\n" + "\n".join(profile_lines))
         else:
-            print("[AGENT CONTEXT] ✗ No USER PROFILE available")
+            print("[AGENT CONTEXT] [FAIL] No USER PROFILE available")
 
         # ============================================================
         # SECTION 2: USER DOCUMENTS (CV, transcript, diploma from Supabase Storage)
         # This provides detailed background about the user's qualifications
         # ============================================================
         if user_docs:
-            print(f"[AGENT CONTEXT] ✓ USER DOCUMENTS available ({len(user_docs)} docs)")
+            print(f"[AGENT CONTEXT] [OK] USER DOCUMENTS available ({len(user_docs)} docs)")
             doc_parts = []
             for d in user_docs[:self.k]:
                 doc_type = d.metadata.get("doc_type", "document")
@@ -665,14 +665,14 @@ class Agent:
                 doc_parts.append(f"[{doc_type.upper()}]: {content}")
             parts.append("=== USER DOCUMENTS ===\n" + "\n\n".join(doc_parts))
         else:
-            print("[AGENT CONTEXT] ✗ No USER DOCUMENTS available")
+            print("[AGENT CONTEXT] [FAIL] No USER DOCUMENTS available")
 
         # ============================================================
         # SECTION 3: KB DOCUMENTS (TUM program info from FAISS vector store)
         # This is the ONLY source of truth for TUM-specific information
         # ============================================================
         if kb_docs:
-            print(f"[AGENT CONTEXT] ✓ TUM KNOWLEDGE BASE available ({len(kb_docs)} docs)")
+            print(f"[AGENT CONTEXT] [OK] TUM KNOWLEDGE BASE available ({len(kb_docs)} docs)")
             kb_parts = []
             for d in kb_docs[:self.k]:
                 source = d.metadata.get("source", "unknown")
@@ -682,7 +682,7 @@ class Agent:
                 kb_parts.append(f"[Source: {source}] {section}\n{content}")
             parts.append("=== TUM KNOWLEDGE BASE ===\n" + "\n\n".join(kb_parts))
         else:
-            print("[AGENT CONTEXT] ✗ No TUM KNOWLEDGE BASE documents retrieved")
+            print("[AGENT CONTEXT] [FAIL] No TUM KNOWLEDGE BASE documents retrieved")
 
         context_text = "\n\n".join(parts) if parts else "No context available"
         
@@ -823,7 +823,7 @@ class Agent:
         text_lower = text.lower()
         for pattern in self.JAILBREAK_PATTERNS:
             if re.search(pattern, text_lower):
-                print(f"[AGENT GUARD] ⚠ Prompt injection detected! Pattern matched: {pattern}")
+                print(f"[AGENT GUARD] [WARN] Prompt injection detected! Pattern matched: {pattern}")
                 return True
         return False
 

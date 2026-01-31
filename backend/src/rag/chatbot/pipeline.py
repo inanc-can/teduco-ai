@@ -116,14 +116,14 @@ class RAGChatbotPipeline:
         # Step 1: Verify Supabase connection (skip local document loading)
         print(f"[{datetime.now().strftime('%H:%M:%S')}] \n[1/2] Verifying Supabase connection...")
         print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] Using Supabase for vector storage and retrieval")
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] ✓ Supabase configuration loaded")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] [OK] Supabase configuration loaded")
         
         # Step 2: Setup LLM chain
         print(f"[{datetime.now().strftime('%H:%M:%S')}] \n[2/2] Setting up LLM chain...")
         self._setup_llm_chain()
         
         print(f"[{datetime.now().strftime('%H:%M:%S')}] \n" + "="*70)
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ✓ RAG PIPELINE READY")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] [OK] RAG PIPELINE READY")
         print(f"[{datetime.now().strftime('%H:%M:%S')}] " + "="*70 + "\n")
     
     def _setup_llm_chain(self):
@@ -136,7 +136,7 @@ class RAGChatbotPipeline:
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
         
-        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] ✓ LLM initialized (model: {self.model_name})")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] [OK] LLM initialized (model: {self.model_name})")
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
@@ -155,7 +155,7 @@ INSTRUCTIONS:
             ("human", "{question}")
         ])
         
-        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] ✓ Prompt template configured")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] [OK] Prompt template configured")
         
         # Custom retriever function that prints debug info
         def retrieve_with_debug(question: str):
@@ -202,10 +202,10 @@ INSTRUCTIONS:
                     
                     # Check if document meets threshold (using hybrid_score)
                     if hybrid_score >= self.similarity_threshold:
-                        print(f" ✓ (Above threshold: {self.similarity_threshold})")
+                        print(f" [OK] (Above threshold: {self.similarity_threshold})")
                         filtered_docs.append(doc)
                     else:
-                        print(f" ✗ (Below threshold: {self.similarity_threshold}) - FILTERED OUT")
+                        print(f" [FAIL] (Below threshold: {self.similarity_threshold}) - FILTERED OUT")
                     
                     print(f"[{datetime.now().strftime('%H:%M:%S')}]       Source: {doc.metadata.get('source', 'unknown')}")
                     print(f"[{datetime.now().strftime('%H:%M:%S')}]       Section: {doc.metadata.get('section', 'N/A')}")
@@ -288,7 +288,7 @@ INSTRUCTIONS:
             | StrOutputParser()
         )
         
-        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] ✓ RAG chain configured with chat history support!")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}]   [PIPELINE] [OK] RAG chain configured with chat history support!")
     
     def answer_question(self, question: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
         """
@@ -322,7 +322,7 @@ INSTRUCTIONS:
             return answer
         except Exception as e:
             error_msg = f"Error generating response: {str(e)}"
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] ✗ {error_msg}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [PIPELINE] [FAIL] {error_msg}")
             return error_msg
     
     @property

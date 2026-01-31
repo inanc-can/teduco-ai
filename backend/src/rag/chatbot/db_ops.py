@@ -368,8 +368,8 @@ def retrieve_chunks(
         # Check if it's a "function not found" error
         error_msg = str(e)
         if "PGRST202" in error_msg or "hybrid_search_uni_degree_documents" in error_msg:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] ⚠ Hybrid search function not found, falling back to semantic-only search")
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] ⚠ Please apply migration: supabase/migrations/20260115000001_create_hybrid_search_for_uni_docs.sql")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] [WARN] Hybrid search function not found, falling back to semantic-only search")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] [WARN] Please apply migration: supabase/migrations/20260115000001_create_hybrid_search_for_uni_docs.sql")
             
             # Fallback to semantic-only search using the old function
             try:
