@@ -31,16 +31,16 @@ EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 # Chunking configuration
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
-RETRIEVAL_K = 10  # Number of documents to retrieve
+RETRIEVAL_K = 15  # Number of documents to retrieve
 
 # Retrieval quality threshold
-SIMILARITY_THRESHOLD = 0.25  # Minimum hybrid score (0-1) to use a document
-# Lowered from 0.40 because multilingual MiniLM produces lower cosine similarities
-# and the normalized hybrid score combines semantic + keyword proportionally
+SIMILARITY_THRESHOLD = 0.30  # Minimum hybrid score (0-1) to use a document
+# With semantic_weight=0.6, a doc with 0.55 semantic sim gets 0.33 hybrid score
+# So 0.30 keeps relevant results while filtering noise
 
 # Hybrid search weights
-SEMANTIC_WEIGHT = 0.5
-KEYWORD_WEIGHT = 0.5
+SEMANTIC_WEIGHT = 0.6  # Favor semantic similarity slightly
+KEYWORD_WEIGHT = 0.4   # Keywords still important for exact term matching
 
 # Crawler configuration
 TUM_BASE_URL = "https://www.tum.de"

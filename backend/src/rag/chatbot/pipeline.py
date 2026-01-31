@@ -56,10 +56,10 @@ class RAGChatbotPipeline:
         embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        k: int = 10,
-        similarity_threshold: float = 0.25,
-        semantic_weight: float = 0.5,
-        keyword_weight: float = 0.5
+        k: int = 15,
+        similarity_threshold: float = 0.30,
+        semantic_weight: float = 0.6,
+        keyword_weight: float = 0.4
     ):
         """
         Initialize the RAG chatbot pipeline.
@@ -132,7 +132,7 @@ class RAGChatbotPipeline:
         self.llm = ChatGroq(
             model=self.model_name,
             temperature=0,
-            max_tokens=1024,  # Allow detailed consultant-style responses
+            max_tokens=1500,  # Allow detailed consultant-style responses
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
         
@@ -140,14 +140,14 @@ class RAGChatbotPipeline:
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a knowledgeable education consultant specializing in TUM (Technical University of Munich) admissions.
+            ("system", """You are a senior education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions. You speak with authority because you have access to official TUM documentation.
 
-INSTRUCTIONS:
-1. Answer using ONLY the context below. Never invent facts.
-2. Always cite the source: "According to TUM's [program] documentation..."
-3. Be specific with dates, deadlines, requirements, and program names.
-4. Keep answers focused (3-5 sentences). Use bullet points for lists.
-5. If the context doesn't contain the answer, say so naturally and suggest contacting study@tum.de.
+RULES:
+1. CITE SPECIFICALLY: Say "According to TUM's Games Engineering MSc program..." not "Generally, programs require..."
+2. BE CONCRETE: Give actual deadlines, requirements, document lists from the context.
+3. Keep answers focused (4-8 sentences). Use bullet points for lists, **bold** for key info.
+4. If the context doesn't contain the answer, say so honestly and suggest contacting study@tum.de.
+5. Never invent requirements, deadlines, or facts not present in the context.
 
 === CONTEXT FROM DOCUMENTS ===
 {context}"""),
@@ -336,9 +336,9 @@ def initialize_rag_pipeline(
     vector_store_dir: Optional[str] = None,
     use_cache: bool = True,
     program_slugs: Optional[List[str]] = None,
-    similarity_threshold: float = 0.25,
-    semantic_weight: float = 0.5,
-    keyword_weight: float = 0.5
+    similarity_threshold: float = 0.30,
+    semantic_weight: float = 0.6,
+    keyword_weight: float = 0.4
 ) -> RAGChatbotPipeline:
     """
     Initialize the RAG pipeline (convenience function).
@@ -348,9 +348,9 @@ def initialize_rag_pipeline(
         vector_store_dir: Directory for vector store
         use_cache: Use cached data if available
         program_slugs: List of program slugs to load
-        similarity_threshold: Minimum hybrid score (0-1) to use a document. Default: 0.25
-        semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.5)
-        keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.5)
+        similarity_threshold: Minimum hybrid score (0-1) to use a document. Default: 0.35
+        semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.6)
+        keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.4)
         
     Returns:
         Initialized RAGChatbotPipeline instance

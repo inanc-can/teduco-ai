@@ -51,10 +51,10 @@ class Agent:
         llm: ChatGroq,
         retriever_pipeline,
         embeddings,
-        k: int = 10,
-        similarity_threshold: float = 0.25,
-        semantic_weight: float = 0.5,
-        keyword_weight: float = 0.5
+        k: int = 15,
+        similarity_threshold: float = 0.30,
+        semantic_weight: float = 0.6,
+        keyword_weight: float = 0.4
     ):
         self.llm = llm
         self.retriever_pipeline = retriever_pipeline
@@ -257,25 +257,46 @@ class Agent:
         print(f"[Agent] Total documents loaded: {len(docs)}")
         return docs
 
-    def _expand_query_for_deadlines(self, question: str) -> str:
-        """Expand query with deadline-related synonyms for better keyword matching.
-
-        If the question is about when to apply, deadlines, or intake periods,
-        add explicit keywords that match the indexed content.
-        """
+    def _expand_query(self, question: str) -> str:
+        """Expand query with topic-specific synonyms for better keyword matching."""
         question_lower = question.lower()
+        expansions = []
 
-        # Check if this is a deadline-related question
+        # Deadline / application timing
         deadline_triggers = [
             "when", "apply", "deadline", "intake", "fall", "winter", "summer",
             "semester", "admission date", "application date", "too late", "time to apply"
         ]
+        if any(t in question_lower for t in deadline_triggers):
+            expansions.append("application period application deadline when to apply admission deadline")
 
-        if any(trigger in question_lower for trigger in deadline_triggers):
-            # Add explicit keywords that match the indexed content
-            expansion = " application period application deadline when to apply admission deadline"
-            print(f"[AGENT KB SEARCH] Query expanded with deadline keywords")
-            return question + expansion
+        # Requirements / eligibility
+        req_triggers = [
+            "require", "eligib", "qualif", "need", "gpa", "grade", "prerequisite",
+            "can i get in", "do i qualify", "enough", "minimum"
+        ]
+        if any(t in question_lower for t in req_triggers):
+            expansions.append("admission requirements entry requirements prerequisites qualification")
+
+        # Language requirements
+        lang_triggers = ["language", "english", "german", "ielts", "toefl", "certificate"]
+        if any(t in question_lower for t in lang_triggers):
+            expansions.append("language proficiency language certificate language requirement")
+
+        # Documents needed
+        doc_triggers = ["document", "submit", "upload", "transcript", "diploma", "cv", "motivation"]
+        if any(t in question_lower for t in doc_triggers):
+            expansions.append("documents required for application enrollment")
+
+        # Costs / fees
+        fee_triggers = ["cost", "fee", "tuition", "price", "pay", "expensive", "afford"]
+        if any(t in question_lower for t in fee_triggers):
+            expansions.append("tuition fees semester contribution costs")
+
+        if expansions:
+            expansion_text = " " + " ".join(expansions)
+            print(f"[AGENT KB SEARCH] Query expanded with topic keywords")
+            return question + expansion_text
 
         return question
 
@@ -363,7 +384,7 @@ class Agent:
             query_embedding = self.embeddings.embed_query(question)
 
             # 2b. Expand query for keyword search (add synonyms for better matching)
-            expanded_query = self._expand_query_for_deadlines(question)
+            expanded_query = self._expand_query(question)
 
             # 3. Retrieve from Supabase using hybrid search
             print(f"[AGENT KB SEARCH] Querying Supabase with k={self.k}...")
@@ -696,17 +717,21 @@ class Agent:
 
     # Varied fallback responses when no context is available
     _NO_CONTEXT_RESPONSES = [
-        "I wasn't able to find specific information about that in my knowledge base. "
-        "You might want to check TUM's official website or reach out to study@tum.de for details.",
+        "I couldn't find specific information about that in my TUM documentation. "
+        "I'd recommend checking TUM's official program pages or contacting the admissions office at study@tum.de - "
+        "they're usually very responsive to specific questions.",
 
-        "That's a great question, but I don't have the specific data to answer it accurately. "
-        "For the most up-to-date information, I'd suggest contacting TUM's admissions office at study@tum.de.",
+        "That's outside what I have documented, unfortunately. For the most reliable answer, "
+        "I'd suggest reaching out to TUM's student advising service at study@tum.de or checking "
+        "the specific program's website on tum.de.",
 
-        "I don't have enough information in my documents to give you a reliable answer on that. "
-        "TUM's student services (study@tum.de) would be the best resource for this.",
+        "I don't have detailed information on that specific topic in my knowledge base. "
+        "The TUM admissions team at study@tum.de would be your best bet for an accurate answer. "
+        "Is there something else about TUM programs I can help with?",
 
-        "Unfortunately, my knowledge base doesn't cover that particular topic well enough to give you a confident answer. "
-        "I'd recommend checking directly with TUM at study@tum.de.",
+        "My documentation doesn't cover that well enough for me to give you a confident answer. "
+        "I'd rather point you to the right source than guess - try study@tum.de or the program's "
+        "page on the TUM website. Can I help you with something else?",
     ]
     _no_context_idx = 0
 
@@ -714,36 +739,51 @@ class Agent:
         print(f"\n{'='*70}")
         print("[AGENT] Generating final answer...")
         print(f"  Question: {question}")
+        print(f"  KB docs: {len(kb_docs)}, User docs: {len(user_docs)}")
         print(f"  Chat history length: {len(chat_history) if chat_history else 0}")
         print(f"{'='*70}\n")
 
         # Build the education consultant system prompt
         system = (
-            "You are a knowledgeable education consultant specializing in TUM (Technical University of Munich) admissions.\n\n"
+            "You are a senior education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions. "
+            "You have years of experience guiding students through TUM's application process and know the programs inside out.\n\n"
 
-            "YOUR ROLE:\n"
-            "- You are NOT a generic chatbot. You are an expert consultant with access to official TUM documentation.\n"
-            "- Always cite your sources: 'According to TUM's [program name] documentation...'\n"
-            "- When comparing a student's qualifications to requirements, be specific and direct.\n"
-            "- Give concrete, actionable advice rather than vague suggestions.\n\n"
+            "YOUR IDENTITY:\n"
+            "- You speak with authority because you have access to official TUM program documentation.\n"
+            "- You are warm but direct. You give honest assessments, not vague encouragement.\n"
+            "- You address students by name when you know it.\n"
+            "- You speak like a real consultant, not a search engine. Use natural, conversational language.\n\n"
 
-            "HOW TO USE THE CONTEXT:\n"
-            "The context below has up to 3 sections:\n"
-            "- USER PROFILE: The student's background (education, GPA, research, preferences)\n"
-            "- USER DOCUMENTS: Content from their uploaded files (CV, transcripts)\n"
-            "- TUM KNOWLEDGE BASE: Official program information (requirements, deadlines, details)\n\n"
+            "HOW TO ANSWER:\n"
+            "The context below may contain up to 3 sections:\n"
+            "- USER PROFILE: The student's academic background, GPA, research interests, preferences\n"
+            "- USER DOCUMENTS: Content from their uploaded CV, transcripts, or other files\n"
+            "- TUM KNOWLEDGE BASE: Official program documentation - requirements, deadlines, procedures\n\n"
 
-            "RESPONSE GUIDELINES:\n"
-            "1. ALWAYS reference the specific program and source when stating facts.\n"
-            "   Good: 'According to TUM's Games Engineering MSc requirements, you need...'\n"
-            "   Bad: 'Generally, master's programs require...'\n"
-            "2. When the student's profile is available, COMPARE their qualifications against requirements.\n"
-            "   Good: 'Your GPA of 3.45 meets the threshold for this program.'\n"
-            "   Bad: 'A good GPA is usually required.'\n"
-            "3. Keep answers focused but thorough (3-6 sentences). Use bullet points for lists.\n"
-            "4. If the context doesn't contain the answer, say so naturally and suggest where to find it.\n"
-            "5. Never invent requirements, deadlines, or facts not present in the context.\n"
-            "6. Reference the student by name if available.\n"
+            "RULES FOR GREAT RESPONSES:\n"
+            "1. CITE SPECIFICALLY. Say 'According to TUM's Games Engineering MSc program...' not 'Typically, programs require...'\n"
+            "2. COMPARE DIRECTLY. If the student has a GPA of 3.45 and the program needs 3.0, say 'Your 3.45 GPA comfortably exceeds the minimum.' "
+            "Don't say 'a good GPA is generally required.'\n"
+            "3. BE CONCRETE. Give actual deadlines, actual requirements, actual document lists from the context.\n"
+            "4. PERSONALIZE. Use the student's profile to give tailored advice. If they study CS with a game dev focus, "
+            "recommend Games Engineering specifically and explain WHY it fits them.\n"
+            "5. STRUCTURE WELL. Use bullet points for lists. Bold key info with **. Keep answers 4-8 sentences unless a list is needed.\n"
+            "6. BE HONEST. If the context doesn't contain the answer, say so naturally and suggest where to look. "
+            "Never make up requirements, deadlines, or facts.\n"
+            "7. SHOW EXPERTISE. Explain the admission process - mention aptitude assessment, what the committee looks for, "
+            "practical tips based on the documentation.\n\n"
+
+            "EXAMPLES OF GOOD vs BAD:\n"
+            "BAD: 'You might want to consider applying to some programs at TUM.'\n"
+            "GOOD: 'Based on your background in Computer Science with a focus on game AI, I'd strongly recommend TUM's "
+            "Games Engineering MSc. The program uses an aptitude assessment, and your research experience in game development "
+            "would be a significant advantage in the evaluation.'\n\n"
+            "BAD: 'The application deadline is usually in the spring or summer.'\n"
+            "GOOD: 'The application period for TUM's Informatics BSc is May 15 - July 15 for the winter semester intake.'\n\n"
+            "BAD: 'Generally, you need a good GPA and language certificates.'\n"
+            "GOOD: 'For the Mathematics in Data Science MSc, TUM requires English proficiency (TOEFL/IELTS). "
+            "Based on your transcript, your 3.72 GPA is competitive. The admission is via aptitude assessment, "
+            "which evaluates your bachelor's coursework using a point system.'\n"
         )
 
         context = self.compile_context_text(profile, kb_docs, user_docs)
@@ -755,24 +795,23 @@ class Agent:
             print(f"[AGENT] No context available, using fallback response")
             return answer
 
-        human_prompt = (
-            "CONTEXT:\n" + (context or "No context available") + "\n\n"
-        )
+        human_prompt = "CONTEXT:\n" + (context or "No context available") + "\n\n"
         if chat_history:
             human_prompt += "RECENT CONVERSATION:\n" + "\n".join(
                 [f"{m['role'].upper()}: {m['content']}" for m in (chat_history or [])[-6:]]
             ) + "\n\n"
         human_prompt += (
             "STUDENT'S QUESTION:\n" + question + "\n\n"
-            "Provide a specific, well-cited answer. Reference program names and sources. "
-            "Compare the student's qualifications to requirements when relevant."
+            "Give a specific, well-informed answer. Cite the program documentation. "
+            "If the student's profile is available, compare their qualifications to the program's requirements. "
+            "Be direct and helpful like an experienced education consultant."
         )
 
         try:
             resp = self.llm.invoke([
                 SystemMessage(content=system),
                 HumanMessage(content=human_prompt)
-            ], temperature=0.2)
+            ], temperature=0.1)
 
             if hasattr(resp, 'content'):
                 content = resp.content
@@ -884,8 +923,8 @@ class Agent:
             kb_docs = self.search_kb(question, profile=profile)
             print(f"[AGENT RUN] KB search returned {len(kb_docs)} documents\n")
 
-        # Search user docs via Supabase if user is authenticated
-        if user_id and ("fetch_user_docs" in actions or "search_user_docs" in actions):
+        # Always search user docs for authenticated users (core value of personalization)
+        if user_id:
             print(f"[AGENT RUN] Searching user documents in Supabase...")
             user_docs = self.search_user_docs_supabase(question, user_id)
             if not user_docs:
