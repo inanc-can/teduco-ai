@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docs
+*.md
+LICENSE
+
+# Tests
+tests/
+pytest_cache/
+.pytest_cache/
+
+# Build artifacts
+*.egg-info/
+dist/
+build/

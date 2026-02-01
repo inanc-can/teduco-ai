@@ -1,0 +1,17 @@
+# Base image for teduco-backend with CPU-only PyTorch
+# Eliminates CUDA packages (~15-18GB savings)
+# Rebuild when requirements-base.txt changes: ./build-base.sh
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install CPU-only PyTorch FIRST to prevent sentence-transformers from pulling CUDA version
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install heavy ML dependencies
+COPY requirements-base.txt .
+RUN pip install --no-cache-dir -r requirements-base.txt
+
+# Clean up pip cache
+RUN rm -rf /root/.cache/pip

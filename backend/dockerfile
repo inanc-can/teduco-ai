@@ -1,13 +1,16 @@
-FROM python:3.11-slim
+# Base image version: v1 (rebuild base when requirements-base.txt changes)
+# Run ./build-base.sh first to create the base image
+FROM teduco-backend-base:v1
 
-# install deps first
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-#RUN pip install -r requirements.txt
 
-# copy only application source code
+# Install lightweight application dependencies only
+COPY requirements-app.txt .
+RUN pip install --no-cache-dir -r requirements-app.txt
+
+# Copy application source code
 COPY src/ ./src
 COPY rag_data/ ./rag_data
+
 # Stay in /app directory for proper package imports
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
