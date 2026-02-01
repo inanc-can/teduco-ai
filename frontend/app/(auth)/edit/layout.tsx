@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { PlusIcon, FileTextIcon } from 'lucide-react';
-import { MOCK_LETTER_DRAFTS } from '@/lib/mocks/letter-suggestions';
+import { useLetters } from '@/hooks/api/use-letters';
+import { NewLetterDialog } from '@/components/new-letter-dialog';
 
 export default function ApplicationLettersLayout({
   children,
@@ -15,7 +16,8 @@ export default function ApplicationLettersLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const [drafts] = useState(MOCK_LETTER_DRAFTS);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const { data: letters = [], isLoading } = useLetters();
 
   const formatLastEdited = (isoDate: string) => {
     const date = new Date(isoDate);
@@ -43,7 +45,7 @@ export default function ApplicationLettersLayout({
       {/* Left Sidebar - Letter Drafts */}
       <aside className="w-64 border-r bg-muted/10 flex flex-col">
         <div className="p-4 border-b">
-          <Button className="w-full" size="sm">
+          <Button className="w-full" size="sm" onClick={() => setDialogOpen(true)}>
             <PlusIcon className="h-4 w-4 mr-2" />
             New Letter
           </Button>
@@ -51,39 +53,51 @@ export default function ApplicationLettersLayout({
 
         <ScrollArea className="flex-1">
           <div className="p-2 space-y-1">
-            {drafts.map((draft) => {
-              const isActive = pathname.includes(draft.id);
-              return (
-                <Link
-                  key={draft.id}
-                  href={`/edit/${draft.id}`}
-                  className={cn(
-                    'block p-3 rounded-lg hover:bg-muted/50 transition-colors',
-                    isActive && 'bg-muted'
-                  )}
-                >
-                  <div className="flex items-start gap-2">
-                    <FileTextIcon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-medium text-sm truncate">
-                        {draft.title}
-                      </h3>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {draft.programName}
-                      </p>
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-xs text-muted-foreground">
-                          {formatLastEdited(draft.lastEdited)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {draft.wordCount} words
-                        </span>
+            {isLoading ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                Loading letters...
+              </div>
+            ) : letters.length === 0 ? (
+              <div className="p-4 text-center text-sm text-muted-foreground">
+                No letters yet. Create one to get started!
+              </div>
+            ) : (
+              letters.map((letter) => {
+                const isActive = pathname.includes(letter.id);
+                return (
+                  <Link
+                    key={letter.id}
+                    href={`/edit/${letter.id}`}
+                    className={cn(
+                      'block p-3 rounded-lg hover:bg-muted/50 transition-colors',
+                      isActive && 'bg-muted'
+                    )}
+                  >
+                    <div className="flex items-start gap-2">
+                      <FileTextIcon className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-sm truncate">
+                          {letter.title}
+                        </h3>
+                        {letter.programName && (
+                          <p className="text-xs text-muted-foreground truncate">
+                            {letter.programName}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-xs text-muted-foreground">
+                            {formatLastEdited(letter.updatedAt)}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {letter.wordCount} words
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </Link>
-              );
-            })}
+                  </Link>
+                );
+              })
+            )}
           </div>
         </ScrollArea>
       </aside>
@@ -92,6 +106,9 @@ export default function ApplicationLettersLayout({
       <main className="flex-1 overflow-hidden">
         {children}
       </main>
+
+      {/* New Letter Dialog */}
+      <NewLetterDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
   );
 }

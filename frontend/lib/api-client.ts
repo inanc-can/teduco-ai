@@ -17,6 +17,7 @@ import type {
   UserProfileUpdate,
   UnknownRecord 
 } from './types/api'
+import type { ApplicationLetter } from './types/letters'
 
 export class ApiError extends Error {
   constructor(
@@ -485,6 +486,69 @@ class ApiClient {
 
   async submitOnboarding(data: OnboardingFormValues) {
     return this.post<UserProfile>('/onboarding', data)
+  }
+
+  // ============================================================================
+  // APPLICATION LETTERS
+  // ============================================================================
+
+  /**
+   * List all application letters for current user
+   */
+  async listLetters(limit = 50, offset = 0): Promise<ApplicationLetter[]> {
+    return this.get<ApplicationLetter[]>(`/letters?limit=${limit}&offset=${offset}`)
+  }
+
+  /**
+   * Create a new application letter
+   */
+  async createLetter(data: {
+    title: string
+    content?: string
+    programId?: string | null
+    programName?: string | null
+    status?: 'draft' | 'final'
+    metadata?: Record<string, any>
+  }): Promise<ApplicationLetter> {
+    return this.post<ApplicationLetter>('/letters', data)
+  }
+
+  /**
+   * Get a specific application letter by ID
+   */
+  async getLetter(letterId: string): Promise<ApplicationLetter> {
+    return this.get<ApplicationLetter>(`/letters/${letterId}`)
+  }
+
+  /**
+   * Update an application letter
+   */
+  async updateLetter(
+    letterId: string,
+    data: {
+      title?: string
+      content?: string
+      programId?: string | null
+      programName?: string | null
+      status?: 'draft' | 'final'
+      metadata?: Record<string, any>
+    }
+  ): Promise<ApplicationLetter> {
+    return this.put<ApplicationLetter>(`/letters/${letterId}`, data)
+  }
+
+  /**
+   * Auto-save letter content (lightweight endpoint for frequent saves)
+   */
+  async autoSaveLetter(letterId: string, content: string): Promise<ApplicationLetter> {
+    return this.patch<ApplicationLetter>(`/letters/${letterId}/auto-save`, { content })
+  }
+
+  /**
+   * Delete an application letter
+   */
+  async deleteLetter(letterId: string): Promise<void> {
+    return this.delete<void>(`/letters/${letterId}`)
   }
 }
 

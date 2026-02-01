@@ -20,19 +20,36 @@ export interface AISuggestion {
   suggestion: string;
   replacement?: string;
   highlightRange?: HighlightRange;
+  confidence?: number; // 0.0-1.0
+  contextBefore?: string; // 20 chars before for position recovery
+  contextAfter?: string; // 20 chars after for position recovery
+  originalText?: string; // The original text that was analyzed by AI
+  reasoning?: string; // Educational explanation of WHY this change improves writing
 }
 
 export interface ApplicationLetter {
   id: string;
   userId: string;
-  programId: string;
+  programId?: string | null;
+  programName?: string | null;
   title: string;
   content: string;
   status: 'draft' | 'final';
   wordCount: number;
-  suggestions: AISuggestion[];
+  metadata: Record<string, any>;
   createdAt: string;
   updatedAt: string;
+  rejectedSuggestionIds?: string[];
+  appliedSuggestionMetadata?: Array<{
+    id: string;
+    appliedAt: string;
+    historyEntryId?: string;
+  }>;
+}
+
+export interface ApplicationLetterWithSuggestions extends ApplicationLetter {
+  suggestions: AISuggestion[];
+  overallFeedback?: string;
 }
 
 export interface LetterDraft {
