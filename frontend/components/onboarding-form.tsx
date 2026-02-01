@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getStepSchema, type OnboardingFormValues } from "@/lib/schemas/onboarding";
 import { useCompleteOnboarding } from "@/hooks/api/use-user";
+import { apiClient } from "@/lib/api-client";
 
 const steps = [
   { id: "personal", title: "Personal" },
@@ -116,7 +117,8 @@ const contentVariants = {
 const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
   const [currentStep, setCurrentStep] = useState(0);
   const [documentFiles, setDocumentFiles] = useState<Record<string, File[]>>({});
-  
+  const [isUploading, setIsUploading] = useState(false);
+
   // React Query mutation
   const completeOnboarding = useCompleteOnboarding();
   
@@ -199,8 +201,8 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
       // Transform numeric fields to ensure they're proper numbers (not strings or NaN)
       const transformedData = {
         ...data,
-        highSchoolGPA: data.highSchoolGPA !== undefined && data.highSchoolGPA !== "" && !Number.isNaN(data.highSchoolGPA) 
-          ? Number(data.highSchoolGPA) 
+        highSchoolGPA: data.highSchoolGPA !== undefined && data.highSchoolGPA !== "" && !Number.isNaN(data.highSchoolGPA)
+          ? Number(data.highSchoolGPA)
           : undefined,
         highSchoolGradYear: data.highSchoolGradYear !== undefined && data.highSchoolGradYear !== "" && !Number.isNaN(data.highSchoolGradYear)
           ? Number(data.highSchoolGradYear)
@@ -212,8 +214,38 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
           ? Number(data.creditsCompleted)
           : undefined,
       };
-      
+
       await completeOnboarding.mutateAsync(transformedData as OnboardingFormValues)
+
+      // Upload document files if any were selected
+      const allFiles = Object.entries(documentFiles).flatMap(
+        ([docType, files]) => files.map((file) => ({ file, docType }))
+      );
+
+      if (allFiles.length > 0) {
+        setIsUploading(true);
+        try {
+          const results = await Promise.allSettled(
+            allFiles.map(({ file, docType }) =>
+              apiClient.uploadDocument(file, docType)
+            )
+          );
+
+          const failed = results.filter((r) => r.status === "rejected").length;
+          if (failed > 0 && failed < allFiles.length) {
+            toast.warning(
+              `${allFiles.length - failed} of ${allFiles.length} documents uploaded. You can upload the rest from your dashboard.`
+            );
+          } else if (failed === allFiles.length) {
+            toast.warning(
+              "Documents could not be uploaded. You can upload them from your dashboard."
+            );
+          }
+        } finally {
+          setIsUploading(false);
+        }
+      }
+
       onComplete?.(transformedData as OnboardingFormValues)
     } catch (error) {
       // Error already handled by the hook
@@ -815,12 +847,16 @@ const OnboardingForm = ({ onComplete }: OnboardingFormProps) => {
                 <Button
                   type="button"
                   onClick={currentStep === steps.length - 1 ? rhfHandleSubmit(handleFormSubmit) : nextStep}
-                  disabled={completeOnboarding.isPending}
+                  disabled={completeOnboarding.isPending || isUploading}
                   className="flex items-center gap-1"
                 >
                   {completeOnboarding.isPending ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" /> Submitting...
+                    </>
+                  ) : isUploading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Uploading documents...
                     </>
                   ) : (
                     <>
