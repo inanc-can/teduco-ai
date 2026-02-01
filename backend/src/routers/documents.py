@@ -27,10 +27,9 @@ def _embed_user_document_background(user_id: str, file_content: bytes, filename:
         # Parse PDF
         if mime_type == "application/pdf" or filename.lower().endswith(".pdf"):
             try:
-                from rag.parser.conversion import DoclingPDFParser
-                parser = DoclingPDFParser(force_full_page_ocr=False)
-                conversion = parser.convert_document(file_content, name=filename)
-                text = parser.conversion_to_markdown(conversion)
+                from rag.parser.pdf_parser import PDFParser
+                parser = PDFParser()
+                text = parser.extract_text(file_content, filename)
             except Exception as e:
                 print(f"[DOC EMBED] Failed to parse PDF {filename}: {e}")
         elif mime_type in ["text/plain", "text/markdown"] or filename.lower().endswith((".txt", ".md")):
