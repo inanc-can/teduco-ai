@@ -4,7 +4,7 @@ Chats router - CRUD operations for chat conversations.
 
 from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from core.models import CamelCaseModel
 from core.dependencies import get_current_user
 from core.schemas import ChatResponse
@@ -250,6 +250,39 @@ def send_message(
         
         if not chat_response.data:
             raise HTTPException(404, "Chat not found")
+        
+        # Check for duplicate message (same content sent within last 10 seconds)
+        # This prevents duplicate submissions from retries or double-clicks
+        recent_cutoff = (datetime.utcnow() - timedelta(seconds=10)).isoformat()
+        
+        duplicate_check = supabase.table("messages")\
+            .select("id")\
+            .eq("chat_id", chat_id)\
+            .eq("user_id", user_id)\
+            .eq("role", "user")\
+            .eq("content", message.content)\
+            .gte("created_at", recent_cutoff)\
+            .limit(1)\
+            .execute()
+        
+        if duplicate_check.data:
+            # Return existing message instead of creating duplicate
+            print(f"[DUPLICATE DETECTED] Ignoring duplicate message in chat {chat_id}")
+            # Fetch the most recent messages to return
+            recent_messages = supabase.table("messages")\
+                .select("*")\
+                .eq("chat_id", chat_id)\
+                .order("created_at", desc=True)\
+                .limit(2)\
+                .execute()
+            
+            if recent_messages.data:
+                user_msg = next((m for m in recent_messages.data if m["role"] == "user"), None)
+                assistant_msg = next((m for m in recent_messages.data if m["role"] == "assistant"), None)
+                return {
+                    "user_message": user_msg,
+                    "assistant_message": assistant_msg
+                }
         
         # Save user message
         user_message_data = {

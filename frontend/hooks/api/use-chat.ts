@@ -177,6 +177,9 @@ export function useSendMessage() {
   return useMutation({
     mutationFn: (data: { chatId: string; message: string; files?: File[] }) =>
       apiClient.sendMessage(data),
+    // Disable retry for message sending - messages are not idempotent
+    // and retrying can cause duplicate messages
+    retry: false,
     onMutate: async (variables) => {
       // Cancel any outgoing refetches
       await queryClient.cancelQueries({

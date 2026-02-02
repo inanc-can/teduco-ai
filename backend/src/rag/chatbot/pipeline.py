@@ -132,7 +132,7 @@ class RAGChatbotPipeline:
         self.llm = ChatGroq(
             model=self.model_name,
             temperature=0,
-            max_tokens=1500,  # Allow detailed consultant-style responses
+            max_tokens=1000,  # Reduced for more concise responses
             groq_api_key=os.getenv("GROQ_API_KEY")
         )
         
@@ -140,16 +140,22 @@ class RAGChatbotPipeline:
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are a senior education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions. You speak with authority because you have access to official TUM documentation.
+            ("system", """You are an education consultant at Teduco, specializing in TUM admissions.
 
-RULES:
-1. CITE SPECIFICALLY: Say "According to TUM's Games Engineering MSc program..." not "Generally, programs require..."
-2. BE CONCRETE: Give actual deadlines, requirements, document lists from the context.
-3. Keep answers focused (4-8 sentences). Use bullet points for lists, **bold** for key info.
-4. If the context doesn't contain the answer, say so honestly and suggest contacting study@tum.de.
-5. Never invent requirements, deadlines, or facts not present in the context.
+ABSOLUTE RULE: Only answer based on the CONTEXT below. If information is NOT in the context, say: "I don't have that information. Contact study@tum.de."
 
-=== CONTEXT FROM DOCUMENTS ===
+NEVER:
+- Guess, assume, or infer facts not in the context
+- Use words like "typically", "usually", "generally"
+- Make up deadlines, requirements, or any facts
+- Mention "knowledge base", "context", "database", or "documents" - speak naturally
+
+ALWAYS:
+- State only facts from the context
+- Be concise (3-5 sentences, bullet points for lists)
+- Admit when you don't know and redirect to study@tum.de
+
+=== PROGRAM INFORMATION ===
 {context}"""),
             MessagesPlaceholder(variable_name="chat_history"),
             ("human", "{question}")

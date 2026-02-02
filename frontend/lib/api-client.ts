@@ -345,6 +345,9 @@ class ApiClient {
   }
 
   async sendMessage(data: { chatId: string; message: string; files?: File[] }) {
+    // Use a longer timeout for message sending since AI responses can take time
+    const messageTimeout = 120000 // 2 minutes
+    
     if (data.files && data.files.length > 0) {
       const formData = new FormData()
       formData.append('content', data.message)
@@ -352,13 +355,14 @@ class ApiClient {
       
       return this.postFormData<Message>(
         `/chats/${data.chatId}/messages`,
-        formData
+        formData,
+        { timeout: messageTimeout }
       )
     }
 
     return this.post<Message>(`/chats/${data.chatId}/messages`, {
       content: data.message,
-    })
+    }, { timeout: messageTimeout })
   }
 
   // ======================

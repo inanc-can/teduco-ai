@@ -37,12 +37,22 @@ from rag.chatbot.db_ops import (
 )
 
 # Try to import PDF parser for document processing
+# First try docling (better for scanned PDFs with OCR), then fallback to pymupdf
 try:
     from rag.parser.conversion import DoclingPDFParser
-    PDF_PARSER_AVAILABLE = True
+    PDF_PARSER_CLASS = DoclingPDFParser
+    PDF_PARSER_TYPE = "docling"
+    print("[Agent] Using DoclingPDFParser for PDF documents")
 except ImportError:
-    PDF_PARSER_AVAILABLE = False
-    print("[Agent] Warning: DoclingPDFParser not available. PDF documents will be skipped.")
+    try:
+        from rag.parser.pdf_parser import PDFParser
+        PDF_PARSER_CLASS = PDFParser
+        PDF_PARSER_TYPE = "pymupdf"
+        print("[Agent] DoclingPDFParser not available, using PyMuPDF fallback")
+    except ImportError:
+        PDF_PARSER_CLASS = None
+        PDF_PARSER_TYPE = None
+        print("[Agent] Warning: No PDF parser available. PDF documents will be skipped.")
 
 
 class Agent:
@@ -157,31 +167,39 @@ class Agent:
             traceback.print_exc()
             return {}
 
-    # TODO: this part will be run by an enpoint of docling parser which will
-    # rake pdf_bytes and return markdown str.
     def _parse_pdf_content(self, pdf_bytes: bytes, filename: str) -> Optional[str]:
-        """Parse PDF content to text using Docling.
+        """Parse PDF content to text using available PDF parser.
+        
+        Uses DoclingPDFParser if available (better OCR support), 
+        otherwise falls back to PyMuPDF (faster, text-based PDFs only).
         
         Args:
             pdf_bytes: Raw PDF file content
             filename: Name of the file for logging
             
         Returns:
-            Extracted text as markdown, or None if parsing fails
+            Extracted text, or None if parsing fails
         """
-        if not PDF_PARSER_AVAILABLE:
-            print(f"[Agent] Skipping PDF {filename}: DoclingPDFParser not available")
+        if PDF_PARSER_CLASS is None:
+            print(f"[Agent] Skipping PDF {filename}: No PDF parser available")
             return None
         
         try:
-            parser = DoclingPDFParser(force_full_page_ocr=False)
-            conversion = parser.convert_document(pdf_bytes, name=filename)
-            markdown_text = parser.conversion_to_markdown(conversion)
-            if markdown_text and len(markdown_text.strip()) > 0:
-                print(f"[Agent] [OK] Parsed PDF {filename}: {len(markdown_text)} chars")
-                return markdown_text
+            if PDF_PARSER_TYPE == "docling":
+                parser = PDF_PARSER_CLASS(force_full_page_ocr=False)
+                conversion = parser.convert_document(pdf_bytes, name=filename)
+                text = parser.conversion_to_markdown(conversion)
+            else:
+                # PyMuPDF fallback
+                parser = PDF_PARSER_CLASS()
+                text = parser.extract_text(pdf_bytes, filename)
+            
+            if text and len(text.strip()) > 0:
+                print(f"[Agent] [OK] Parsed PDF {filename} using {PDF_PARSER_TYPE}: {len(text)} chars")
+                return text
         except Exception as e:
             print(f"[Agent] Failed to parse PDF {filename}: {e}")
+            traceback.print_exc()
         return None
 
     def fetch_user_documents(self, user_id: str) -> List[Document]:
@@ -283,10 +301,12 @@ class Agent:
         if any(t in question_lower for t in lang_triggers):
             expansions.append("language proficiency language certificate language requirement")
 
-        # Documents needed
-        doc_triggers = ["document", "submit", "upload", "transcript", "diploma", "cv", "motivation"]
+        # Documents needed / eligibility check
+        doc_triggers = ["document", "submit", "upload", "transcript", "diploma", "cv", "motivation", 
+                       "what do i need", "do i need", "enough", "ready", "missing", "checklist", 
+                       "requirements", "required", "prepare"]
         if any(t in question_lower for t in doc_triggers):
-            expansions.append("documents required for application enrollment")
+            expansions.append("documents required for online application enrollment higher education entrance qualification proof transcript diploma cv resume passport")
 
         # Costs / fees
         fee_triggers = ["cost", "fee", "tuition", "price", "pay", "expensive", "afford"]
@@ -316,12 +336,19 @@ class Agent:
         list_trigger = any(kw in question_lower for kw in ["list", "show", "display", "what are", "how many", "total", "count", "tell me about"])
         program_trigger = any(kw in question_lower for kw in ["program", "degree", "course"])
         
+        # Also detect "suggest alternatives" or "what else" type queries
+        alternative_trigger = any(kw in question_lower for kw in [
+            "what else", "other program", "other option", "alternative", "suggest", "recommend",
+            "what would you", "which program", "available program", "what program", "different program",
+            "instead of", "besides", "apart from"
+        ])
+        
         # If asking to list/count programs AND not asking specific details
         specific_details = any(kw in question_lower for kw in ["requirement", "deadline", "admission", "language", "when", "how to apply", "credit"])
         
-        if list_trigger and program_trigger and not specific_details:
+        if (list_trigger and program_trigger and not specific_details) or (alternative_trigger and not specific_details):
             print(f"\n{'='*70}")
-            print(f"[AGENT KB SEARCH] Detected 'list all programs' query")
+            print(f"[AGENT KB SEARCH] Detected 'list all programs' or 'suggest alternatives' query")
             print(f"[AGENT KB SEARCH] Using direct database query instead of vector search")
             print(f"{'='*70}")
             
@@ -331,23 +358,47 @@ class Agent:
                 print(f"[AGENT KB SEARCH] No programs found in database")
                 return []
             
-            # Create a summary document listing all programs
+            # Determine which degree level to filter based on user eligibility
+            user_applicant_type = None
+            if profile:
+                user = profile.get("user") or {}
+                user_applicant_type = user.get("applicant_type", "") if isinstance(user, dict) else ""
+            
+            # Filter programs based on user's eligibility
+            eligible_level = None
+            if user_applicant_type == "high-school":
+                eligible_level = "bachelor"
+                print(f"[AGENT KB SEARCH] High school student - showing only Bachelor programs")
+            elif user_applicant_type == "university":
+                eligible_level = "master"
+                print(f"[AGENT KB SEARCH] University student - showing only Master programs")
+            
+            # Create a summary document listing eligible programs
             program_list = []
             for p in programs:
                 degree = p.get('degree', 'unknown')
                 level = p.get('degree_level', 'unknown')
                 source = p.get('source', 'unknown')
+                
+                # Filter by eligible level if specified
+                if eligible_level and level != eligible_level:
+                    continue
+                    
                 program_list.append(f"- {degree.title()} ({level.title()})")
             
-            content = f"TUM Degree Programs in Database:\n\n" + "\n".join(sorted(set(program_list)))
-            content += f"\n\nTotal: {len(set(program_list))} unique degree programs"
+            level_text = f" {eligible_level.title()}" if eligible_level else ""
+            content = f"TUM{level_text} Degree Programs I can help you with:\n\n" + "\n".join(sorted(set(program_list)))
+            content += f"\n\nTotal: {len(set(program_list))} unique{level_text.lower()} degree programs"
             
-            print(f"[AGENT KB SEARCH] Found {len(programs)} program entries ({len(set(program_list))} unique programs)")
+            if eligible_level == "bachelor" and user_applicant_type == "high-school":
+                content += "\n\nNote: As a high school student, you are eligible for Bachelor's programs. Master's programs require a completed Bachelor's degree."
+            
+            print(f"[AGENT KB SEARCH] Found {len(set(program_list))} eligible programs for user")
             print(f"{'='*70}\n")
             
             return [Document(
                 page_content=content,
-                metadata={"source": "database_query", "type": "program_list", "count": len(set(program_list))}
+                metadata={"source": "database_query", "type": "program_list", "count": len(set(program_list)), "degree_level": eligible_level}
             )]
         
         print(f"\n{'='*70}")
@@ -357,27 +408,41 @@ class Agent:
         print(f"{'='*70}")
         
         try:
-            # 1. Extract degree level from question keywords first, then fall back to profile
+            # 1. Determine degree level filter based on user's eligibility
+            # IMPORTANT: High school students can ONLY see Bachelor programs
+            # University students can see Master programs
             degree_level_filter = None
             question_lower = question.lower()
-            if "bachelor" in question_lower or "bachelor's" in question_lower or "undergraduate" in question_lower or "bsc" in question_lower:
-                degree_level_filter = "bachelor"
-                print(f"[AGENT KB SEARCH] Detected bachelor degree level from question keywords")
-            elif "master" in question_lower or "master's" in question_lower or "msc" in question_lower or "mse" in question_lower:
-                degree_level_filter = "master"
-                print(f"[AGENT KB SEARCH] Detected master degree level from question keywords")
-            elif profile:
-                # Infer degree level from user profile's applicant_type
-                # high-school student → looking for Bachelor programs
-                # university student → looking for Master programs
+            
+            # First, check the user's applicant type to determine eligibility
+            user_applicant_type = None
+            if profile:
                 user = profile.get("user") or {}
-                applicant_type = user.get("applicant_type", "") if isinstance(user, dict) else ""
-                if applicant_type == "high-school":
+                user_applicant_type = user.get("applicant_type", "") if isinstance(user, dict) else ""
+            
+            # High school students: ALWAYS filter to bachelor programs only
+            if user_applicant_type == "high-school":
+                degree_level_filter = "bachelor"
+                if "master" in question_lower or "master's" in question_lower or "msc" in question_lower:
+                    print(f"[AGENT KB SEARCH] User is high school student asking about Master's - enforcing Bachelor filter")
+                else:
+                    print(f"[AGENT KB SEARCH] High school student - filtering to Bachelor programs only")
+            # University students: can search for Master's, or Bachelor's if they explicitly ask
+            elif user_applicant_type == "university":
+                if "bachelor" in question_lower or "bachelor's" in question_lower or "undergraduate" in question_lower or "bsc" in question_lower:
                     degree_level_filter = "bachelor"
-                    print(f"[AGENT KB SEARCH] Inferred bachelor degree level from user profile (high school student)")
-                elif applicant_type == "university":
+                    print(f"[AGENT KB SEARCH] University student asking about Bachelor programs")
+                else:
                     degree_level_filter = "master"
-                    print(f"[AGENT KB SEARCH] Inferred master degree level from user profile (university student)")
+                    print(f"[AGENT KB SEARCH] University student - defaulting to Master programs")
+            # No profile or unknown type: use question keywords
+            else:
+                if "bachelor" in question_lower or "bachelor's" in question_lower or "undergraduate" in question_lower or "bsc" in question_lower:
+                    degree_level_filter = "bachelor"
+                    print(f"[AGENT KB SEARCH] Detected bachelor degree level from question keywords")
+                elif "master" in question_lower or "master's" in question_lower or "msc" in question_lower or "mse" in question_lower:
+                    degree_level_filter = "master"
+                    print(f"[AGENT KB SEARCH] Detected master degree level from question keywords")
             
             # 2. Embed the query (original question for semantic search)
             print(f"[AGENT KB SEARCH] Embedding query...")
@@ -678,32 +743,41 @@ class Agent:
         # ============================================================
         if user_docs:
             print(f"[AGENT CONTEXT] [OK] USER DOCUMENTS available ({len(user_docs)} docs)")
+            
+            # First, create a summary of uploaded document types for quick reference
+            doc_types_uploaded = set()
             doc_parts = []
             for d in user_docs[:self.k]:
                 doc_type = d.metadata.get("doc_type", "document")
+                doc_types_uploaded.add(doc_type.lower())
                 # Keep newlines for better structure
                 content = d.page_content[:1500].strip()
                 doc_parts.append(f"[{doc_type.upper()}]: {content}")
-            parts.append("=== USER DOCUMENTS ===\n" + "\n\n".join(doc_parts))
+            
+            # Add a summary header showing what documents the user has uploaded
+            doc_summary = f"Documents uploaded by user: {', '.join(sorted(doc_types_uploaded))}\n\n"
+            parts.append("=== USER DOCUMENTS ===\n" + doc_summary + "\n\n".join(doc_parts))
         else:
             print("[AGENT CONTEXT] [FAIL] No USER DOCUMENTS available")
+            # Still add a note that no documents have been uploaded
+            parts.append("=== USER DOCUMENTS ===\nNo documents have been uploaded yet by the user.")
 
         # ============================================================
-        # SECTION 3: KB DOCUMENTS (TUM program info from FAISS vector store)
+        # SECTION 3: TUM PROGRAM INFORMATION (from vector store)
         # This is the ONLY source of truth for TUM-specific information
         # ============================================================
         if kb_docs:
-            print(f"[AGENT CONTEXT] [OK] TUM KNOWLEDGE BASE available ({len(kb_docs)} docs)")
+            print(f"[AGENT CONTEXT] [OK] TUM PROGRAM INFO available ({len(kb_docs)} docs)")
             kb_parts = []
             for d in kb_docs[:self.k]:
                 source = d.metadata.get("source", "unknown")
                 section = d.metadata.get("section", "")
                 # Keep newlines for better readability by the LLM
                 content = d.page_content[:1500].strip()
-                kb_parts.append(f"[Source: {source}] {section}\n{content}")
-            parts.append("=== TUM KNOWLEDGE BASE ===\n" + "\n\n".join(kb_parts))
+                kb_parts.append(f"[Program: {source}] {section}\n{content}")
+            parts.append("=== TUM PROGRAM INFORMATION ===\n" + "\n\n".join(kb_parts))
         else:
-            print("[AGENT CONTEXT] [FAIL] No TUM KNOWLEDGE BASE documents retrieved")
+            print("[AGENT CONTEXT] [FAIL] No TUM PROGRAM INFO retrieved")
 
         context_text = "\n\n".join(parts) if parts else "No context available"
         
@@ -716,24 +790,31 @@ class Agent:
         return context_text
 
     # Varied fallback responses when no context is available
+    # Use {name} as placeholder to be replaced with actual user name
     _NO_CONTEXT_RESPONSES = [
-        "I couldn't find specific information about that in my TUM documentation. "
-        "I'd recommend checking TUM's official program pages or contacting the admissions office at study@tum.de - "
-        "they're usually very responsive to specific questions.",
+        "Hey {name}! I don't have specific info on that topic. "
+        "I'd recommend reaching out to study@tum.de for the details. Anything else I can help with?",
 
-        "That's outside what I have documented, unfortunately. For the most reliable answer, "
-        "I'd suggest reaching out to TUM's student advising service at study@tum.de or checking "
-        "the specific program's website on tum.de.",
+        "Hmm {name}, that's outside my expertise unfortunately. "
+        "For a reliable answer, contact study@tum.de. Is there something else about TUM I can help with?",
 
-        "I don't have detailed information on that specific topic in my knowledge base. "
-        "The TUM admissions team at study@tum.de would be your best bet for an accurate answer. "
-        "Is there something else about TUM programs I can help with?",
+        "Good question, {name}! I don't have the details on that one. "
+        "The team at study@tum.de can help you out. What else can I assist with?",
 
-        "My documentation doesn't cover that well enough for me to give you a confident answer. "
-        "I'd rather point you to the right source than guess - try study@tum.de or the program's "
-        "page on the TUM website. Can I help you with something else?",
+        "{name}, I'd rather point you to the right source than guess on this one - try study@tum.de. "
+        "In the meantime, anything else I can help you with?",
     ]
     _no_context_idx = 0
+
+    def _get_user_first_name(self, profile: Optional[Dict[str, Any]]) -> str:
+        """Extract the user's first name from their profile."""
+        if not profile:
+            return "there"
+        user = profile.get("user") or {}
+        full_name = user.get("name", "") if isinstance(user, dict) else ""
+        if full_name:
+            return full_name.split()[0]  # Get first name
+        return "there"
 
     def final_answer(self, question: str, profile: Dict[str, Any], kb_docs: List[Document], user_docs: List[Document], chat_history: Optional[List[Dict[str, str]]] = None) -> str:
         print(f"\n{'='*70}")
@@ -745,55 +826,131 @@ class Agent:
 
         # Build the education consultant system prompt
         system = (
-            "You are a senior education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions. "
-            "You have years of experience guiding students through TUM's application process and know the programs inside out.\n\n"
+            "You are a friendly education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions.\n\n"
 
-            "YOUR IDENTITY:\n"
-            "- You speak with authority because you have access to official TUM program documentation.\n"
-            "- You are warm but direct. You give honest assessments, not vague encouragement.\n"
-            "- You address students by name when you know it.\n"
-            "- You speak like a real consultant, not a search engine. Use natural, conversational language.\n\n"
+            "ABSOLUTE RULE - NEVER VIOLATE:\n"
+            "You may ONLY answer based on the information provided in the CONTEXT below. "
+            "If the information is NOT in the context, you DO NOT KNOW IT. "
+            "NEVER guess, assume, infer, or fill in gaps with general knowledge. "
+            "If you don't have specific information, say: 'I don't have that specific information. Please contact study@tum.de for details.'\n\n"
 
-            "HOW TO ANSWER:\n"
-            "The context below may contain up to 3 sections:\n"
-            "- USER PROFILE: The student's academic background, GPA, research interests, preferences\n"
-            "- USER DOCUMENTS: Content from their uploaded CV, transcripts, or other files\n"
-            "- TUM KNOWLEDGE BASE: Official program documentation - requirements, deadlines, procedures\n\n"
+            "INFORMATION HIERARCHY:\n"
+            "1. TUM PROGRAM INFORMATION - Your PRIMARY and ONLY source for TUM-related facts\n"
+            "2. USER PROFILE & DOCUMENTS - Use ONLY when the student asks about themselves\n"
+            "3. If neither source has the answer → Admit you don't know and redirect to study@tum.de\n\n"
 
-            "RULES FOR GREAT RESPONSES:\n"
-            "1. CITE SPECIFICALLY. Say 'According to TUM's Games Engineering MSc program...' not 'Typically, programs require...'\n"
-            "2. COMPARE DIRECTLY. If the student has a GPA of 3.45 and the program needs 3.0, say 'Your 3.45 GPA comfortably exceeds the minimum.' "
-            "Don't say 'a good GPA is generally required.'\n"
-            "3. BE CONCRETE. Give actual deadlines, actual requirements, actual document lists from the context.\n"
-            "4. PERSONALIZE. Use the student's profile to give tailored advice. If they study CS with a game dev focus, "
-            "recommend Games Engineering specifically and explain WHY it fits them.\n"
-            "5. STRUCTURE WELL. Use bullet points for lists. Bold key info with **. Keep answers 4-8 sentences unless a list is needed.\n"
-            "6. BE HONEST. If the context doesn't contain the answer, say so naturally and suggest where to look. "
-            "Never make up requirements, deadlines, or facts.\n"
-            "7. SHOW EXPERTISE. Explain the admission process - mention aptitude assessment, what the committee looks for, "
-            "practical tips based on the documentation.\n\n"
+            "WHAT YOU MUST NEVER DO:\n"
+            "- NEVER invent deadlines, requirements, GPA thresholds, or any facts\n"
+            "- NEVER use general knowledge about TUM or German universities\n"
+            "- NEVER assume requirements are 'typical' or 'usually'\n"
+            "- NEVER say 'generally', 'typically', 'usually', 'most programs' - only state what's in the context\n"
+            "- NEVER fill gaps with educated guesses\n"
+            "- NEVER mention 'knowledge base', 'database', 'context', or 'documents' in your responses\n\n"
 
-            "EXAMPLES OF GOOD vs BAD:\n"
-            "BAD: 'You might want to consider applying to some programs at TUM.'\n"
-            "GOOD: 'Based on your background in Computer Science with a focus on game AI, I'd strongly recommend TUM's "
-            "Games Engineering MSc. The program uses an aptitude assessment, and your research experience in game development "
-            "would be a significant advantage in the evaluation.'\n\n"
-            "BAD: 'The application deadline is usually in the spring or summer.'\n"
-            "GOOD: 'The application period for TUM's Informatics BSc is May 15 - July 15 for the winter semester intake.'\n\n"
-            "BAD: 'Generally, you need a good GPA and language certificates.'\n"
-            "GOOD: 'For the Mathematics in Data Science MSc, TUM requires English proficiency (TOEFL/IELTS). "
-            "Based on your transcript, your 3.72 GPA is competitive. The admission is via aptitude assessment, "
-            "which evaluates your bachelor's coursework using a point system.'\n"
+            "YOUR COMMUNICATION STYLE:\n"
+            "- BE CONCISE: 3-5 sentences for simple questions, bullet points for lists\n"
+            "- BE DIRECT: Answer first, add context if needed\n"
+            "- USE THEIR NAME: Address them by first name naturally\n"
+            "- BE HONEST: If you don't have info, say so immediately - don't hedge or guess\n"
+            "- SPEAK NATURALLY: Never reference where your information comes from - just state facts confidently\n\n"
+
+            "WHEN TO USE USER DATA:\n"
+            "- Only reference USER PROFILE/DOCUMENTS when the student asks about their own situation\n"
+            "- For comparing their qualifications to requirements\n"
+            "- For checking what documents they've uploaded\n"
+            "- NEVER use user data to fill in gaps about TUM programs\n\n"
+
+            "CRITICAL RULES:\n\n"
+
+            "1. PROGRAMS - Only discuss programs explicitly in the context:\n"
+            "   - If a program isn't in the context, say: 'I don't have information on that program. Contact study@tum.de.'\n\n"
+
+            "2. DEGREE ELIGIBILITY:\n"
+            "   - High school students → Bachelor's only\n"
+            "   - University students/graduates → Master's programs\n\n"
+
+            "3. DOCUMENT CHECKS:\n"
+            "   - Only list requirements that appear in the context\n"
+            "   - Use ✅/❌ to show what they have vs. need\n\n"
+
+            "4. WHEN YOU DON'T KNOW:\n"
+            "   - Say directly: 'I don't have that specific information.'\n"
+            "   - Always redirect: 'Please contact study@tum.de for details.'\n"
+            "   - Don't apologize excessively, just be direct and helpful\n\n"
+
+            "RESPONSE FORMAT:\n"
+            "- Simple questions → 2-4 sentences\n"
+            "- Lists → Bullet points only\n"
+            "- Missing info → State what you don't know + redirect to study@tum.de\n"
         )
 
         context = self.compile_context_text(profile, kb_docs, user_docs)
 
-        # No context at all - use varied fallback
+        # No KB docs - check if user is asking for program suggestions
+        # If so, fetch and list available programs (filtered by eligibility)
         if not kb_docs and not user_docs:
-            Agent._no_context_idx = (Agent._no_context_idx + 1) % len(Agent._NO_CONTEXT_RESPONSES)
-            answer = Agent._NO_CONTEXT_RESPONSES[Agent._no_context_idx]
-            print(f"[AGENT] No context available, using fallback response")
-            return answer
+            question_lower = question.lower()
+            # Check if this is a "suggest programs" or "what else" type query
+            suggest_trigger = any(kw in question_lower for kw in [
+                "what else", "other program", "alternative", "suggest", "recommend",
+                "what would you", "which program", "available", "what program", 
+                "instead", "besides", "apart from", "options"
+            ])
+            
+            if suggest_trigger:
+                print(f"[AGENT] No KB results but user asking for suggestions - fetching eligible programs")
+                programs = list_all_degree_programs()
+                
+                if programs:
+                    # Determine eligibility based on user profile
+                    user_applicant_type = None
+                    if profile:
+                        user = profile.get("user") or {}
+                        user_applicant_type = user.get("applicant_type", "") if isinstance(user, dict) else ""
+                    
+                    eligible_level = None
+                    if user_applicant_type == "high-school":
+                        eligible_level = "bachelor"
+                    elif user_applicant_type == "university":
+                        eligible_level = "master"
+                    
+                    # Create a list of unique programs filtered by eligibility
+                    program_set = set()
+                    for p in programs:
+                        degree = p.get('degree', 'unknown')
+                        level = p.get('degree_level', 'unknown')
+                        
+                        # Filter by eligible level if specified
+                        if eligible_level and level != eligible_level:
+                            continue
+                            
+                        program_set.add(f"{degree.title()} ({level.title()})")
+                    
+                    program_list_text = "\n".join(f"- {p}" for p in sorted(program_set))
+                    
+                    level_text = f" {eligible_level.title()}" if eligible_level else ""
+                    content = f"TUM{level_text} Degree Programs I can help you with:\n\n{program_list_text}\n\nTotal: {len(program_set)} unique programs"
+                    
+                    if eligible_level == "bachelor" and user_applicant_type == "high-school":
+                        content += "\n\nNote: As a high school student, you are eligible for Bachelor's programs. Master's programs require a completed Bachelor's degree."
+                    
+                    # Create a synthetic KB doc with program list
+                    kb_docs = [Document(
+                        page_content=content,
+                        metadata={"source": "database_query", "type": "program_list", "count": len(program_set), "degree_level": eligible_level}
+                    )]
+                    context = self.compile_context_text(profile, kb_docs, user_docs)
+                    print(f"[AGENT] Added {len(program_set)} eligible programs to context")
+            
+            # Only use fallback if no context at all (no profile, no kb docs, no user docs)
+            # If profile is available, the LLM can still answer personal questions
+            has_profile = profile and profile.get("user")
+            if not kb_docs and not user_docs and not has_profile:
+                Agent._no_context_idx = (Agent._no_context_idx + 1) % len(Agent._NO_CONTEXT_RESPONSES)
+                first_name = self._get_user_first_name(profile)
+                answer = Agent._NO_CONTEXT_RESPONSES[Agent._no_context_idx].format(name=first_name)
+                print(f"[AGENT] No context available (no profile, no KB, no user docs), using fallback")
+                return answer
 
         human_prompt = "CONTEXT:\n" + (context or "No context available") + "\n\n"
         if chat_history:
@@ -802,9 +959,13 @@ class Agent:
             ) + "\n\n"
         human_prompt += (
             "STUDENT'S QUESTION:\n" + question + "\n\n"
-            "Give a specific, well-informed answer. Cite the program documentation. "
-            "If the student's profile is available, compare their qualifications to the program's requirements. "
-            "Be direct and helpful like an experienced education consultant."
+            "CRITICAL REMINDERS:\n"
+            "- ONLY use information from the CONTEXT above - NEVER make up facts\n"
+            "- If the answer is NOT in the context, say: 'I don't have that information. Contact study@tum.de.'\n"
+            "- NEVER guess, assume, or use general knowledge about TUM\n"
+            "- NEVER mention 'knowledge base', 'context', 'database', or 'documents' - speak naturally\n"
+            "- Use their first name naturally\n"
+            "- Be concise and direct"
         )
 
         try:
