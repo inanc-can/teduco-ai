@@ -1,6 +1,20 @@
-# Base image version: v1 (rebuild base when requirements-base.txt changes)
-# Run ./build-base.sh first to create the base image
-FROM teduco-backend-base:v1
+# Multi-stage build: base stage with heavy ML dependencies
+FROM python:3.11-slim AS base
+
+WORKDIR /app
+
+# Install CPU-only PyTorch FIRST to prevent sentence-transformers from pulling CUDA version
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install heavy ML dependencies
+COPY requirements-base.txt .
+RUN pip install --no-cache-dir -r requirements-base.txt
+
+# Clean up pip cache
+RUN rm -rf /root/.cache/pip
+
+# Final stage: application
+FROM base AS app
 
 WORKDIR /app
 

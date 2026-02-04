@@ -1,5 +1,4 @@
 services:
-  # Requires: cd backend && ./build-base.sh (run once, or when requirements-base.txt changes)
   backend:
     build:
       context: ./backend
