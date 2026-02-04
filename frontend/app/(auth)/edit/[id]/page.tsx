@@ -13,8 +13,8 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
 import {
   Accordion,
   AccordionContent,
@@ -25,6 +25,8 @@ import {
   CheckCircle2Icon,
   Loader2Icon,
   AlertCircleIcon,
+  AlertTriangleIcon,
+  RefreshCwIcon,
   InfoIcon,
   SparklesIcon,
   UndoIcon,
@@ -39,6 +41,9 @@ import { MOCK_PROGRAMS } from '@/lib/mocks/letter-suggestions';
 import type { AISuggestion } from '@/lib/types/letters';
 import { DiffPreview } from '@/components/diff-preview';
 import { findSuggestionPosition, rangesOverlap, type SuggestionAnchor } from '@/lib/utils/text-matching';
+import { findBestFuzzyMatch, validateSemanticSimilarity } from '@/lib/utils/fuzzy-matching';
+import { trackSuggestionApplied, trackSuggestionRejected, trackPositionRecoveryFailed } from '@/lib/utils/analytics';
+import { toast } from 'sonner';
 
 export default function LetterEditorPage({
   params,
@@ -69,6 +74,8 @@ export default function LetterEditorPage({
     historyEntryId?: string;
   }>>([]);
 
+
+
   // Initialize content from database
   useEffect(() => {
     if (letter && content === '') {
@@ -94,12 +101,12 @@ export default function LetterEditorPage({
         setSuggestionStates(newStates);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [letter]);
 
   // History management for undo/redo
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(0);
-  const [appliedSuggestionIds, setAppliedSuggestionIds] = useState<Set<string>>(new Set());
 
   // Update content with history tracking
   const updateContent = (newContent: string, addToHistory = true) => {
@@ -152,10 +159,10 @@ export default function LetterEditorPage({
     autoSaveStatus,
     analysisStatus,
     isAnalyzing,
+    isStale,
     wordCount,
     triggerAnalysis,
     clearSuggestions,
-    paragraphCacheStats,
   } = useLetterAnalysis({
     content,
     programSlug,
@@ -163,6 +170,7 @@ export default function LetterEditorPage({
     debounceMs: 1500, // Reduced - paragraph caching makes this safe
     useMockData: false,
     enableParagraphCaching: true, // Enable smart paragraph-level caching
+    autoAnalyze: false, // Disable auto-analysis - only analyze on button click
   });
 
   // Debug: Log suggestions when they change
@@ -200,6 +208,7 @@ export default function LetterEditorPage({
         setSuggestionStates(newStates);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analysisStatus, rawSuggestions]);
 
   // Detect overlapping suggestions
@@ -250,6 +259,35 @@ export default function LetterEditorPage({
   const suggestionConflicts = detectConflicts(filteredSuggestions);
   const suggestions = filteredSuggestions;
 
+  // Group suggestions by type
+  const suggestionsByType = suggestions.reduce((acc, s) => {
+    // Determine type: use existing type or infer from category for backwards compatibility
+    // objective: grammar, spelling, punctuation, conciseness, passive-voice, capitalization
+    // strategic: tone, style, clarity, structure, program-alignment, content, motivation, qualifications
+    const objectiveCategories = ['grammar', 'spelling', 'punctuation', 'conciseness', 'passive-voice', 'capitalization'];
+    const type = s.type || (objectiveCategories.includes(s.category.toLowerCase()) ? 'objective' : 'strategic');
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(s);
+    return acc;
+  }, { objective: [], strategic: [] } as Record<string, typeof suggestions>);
+
+  const typeLabels: Record<string, string> = {
+    objective: "Grammar & Spelling",
+    strategic: "Consultant Strategy"
+  };
+
+  const typeIcons: Record<string, string> = {
+    objective: "✍️",
+    strategic: "🎓"
+  };
+
+  const typeDescriptions: Record<string, string> = {
+    objective: "Direct corrections for grammar, spelling, and conciseness",
+    strategic: "Strategic advice from our TUM education consultant"
+  };
+
+  const typeOrder = ['objective', 'strategic'];
+
   // Sync scroll between textarea and highlight layer
   const handleScroll = () => {
     if (textareaRef.current && highlightLayerRef.current) {
@@ -283,13 +321,22 @@ export default function LetterEditorPage({
     const originalTrimmed = original.trim();
     const replacementTrimmed = replacement.trim();
     
-    // Check word count - reject if replacement is suspiciously shorter
+    // 1. Semantic similarity check - prevents drastic content changes
+    if (!validateSemanticSimilarity(originalTrimmed, replacementTrimmed, 0.5)) {
+      console.error('[Validation] Replacement fails semantic similarity check:', {
+        original: originalTrimmed,
+        replacement: replacementTrimmed
+      });
+      return false;
+    }
+    
+    // 2. Word count check - reject if replacement is suspiciously shorter
     const originalWords = originalTrimmed.split(/\s+/).length;
     const replacementWords = replacementTrimmed.split(/\s+/).length;
     
-    // More lenient: Only reject if replacement has < 30% of original words AND original has 6+ words
-    // This allows legitimate shortenings while blocking obvious content deletion
-    if (replacementWords < originalWords * 0.3 && originalWords >= 6) {
+    // More lenient: Only reject if replacement has < 50% of original words AND original has 6+ words
+    // Updated from 30% to 50% based on semantic similarity addition
+    if (replacementWords < originalWords * 0.5 && originalWords >= 6) {
       console.error('[Validation] Replacement too short - would delete content:', {
         original: originalTrimmed,
         replacement: replacementTrimmed,
@@ -299,7 +346,7 @@ export default function LetterEditorPage({
       return false;
     }
     
-    // Only validate sentence-ending punctuation preservation (. ! ?)
+    // 3. Only validate sentence-ending punctuation preservation (. ! ?)
     // Allow changes to commas, semicolons, colons as they may be legitimately removed
     const originalLast = originalTrimmed[originalTrimmed.length - 1];
     const replacementLast = replacementTrimmed[replacementTrimmed.length - 1];
@@ -329,6 +376,12 @@ export default function LetterEditorPage({
       return;
     }
 
+    // Track metrics
+    const suggestionCreatedAt = Date.now(); // TODO: Add timestamp to suggestion
+    let positionVerified = false;
+    let fuzzyMatchUsed = false;
+    let fuzzyMatchScore: number | undefined;
+
     // Use anchor-based position finding if we have originalText
     let start = suggestion.highlightRange.start;
     let end = suggestion.highlightRange.end;
@@ -348,12 +401,40 @@ export default function LetterEditorPage({
         
         if (foundPosition.confidence === 'fuzzy') {
           console.log('[handleImprove] Using fuzzy position match:', { start, end });
+          fuzzyMatchUsed = true;
         }
       } else {
-        console.error('[handleImprove] Could not find text using anchor-based matching');
-        console.log('[handleImprove] Auto-refreshing suggestions');
-        triggerAnalysis();
-        return;
+        // Try fallback fuzzy matching
+        console.log('[handleImprove] Anchor matching failed, trying fuzzy match...');
+        const fuzzyResult = findBestFuzzyMatch(
+          content,
+          suggestion.originalText,
+          suggestion.contextBefore,
+          suggestion.contextAfter,
+          0.7 // 70% similarity threshold
+        );
+        
+        if (fuzzyResult) {
+          console.log('[handleImprove] Fuzzy match successful:', {
+            score: fuzzyResult.score,
+            start: fuzzyResult.start,
+            end: fuzzyResult.end
+          });
+          start = fuzzyResult.start;
+          end = fuzzyResult.end;
+          fuzzyMatchUsed = true;
+          fuzzyMatchScore = fuzzyResult.score;
+        } else {
+          console.error('[handleImprove] Could not find text using any matching method');
+          trackPositionRecoveryFailed(
+            suggestion.id,
+            suggestion.originalText,
+            !!(suggestion.contextBefore || suggestion.contextAfter)
+          );
+          console.log('[handleImprove] Auto-refreshing suggestions');
+          triggerAnalysis();
+          return;
+        }
       }
     }
     
@@ -369,12 +450,68 @@ export default function LetterEditorPage({
     const after = content.substring(end);
     const original = content.substring(start, end);
     
-    // CRITICAL POSITION VERIFICATION: Check if the text at this position matches what AI analyzed
-    if (suggestion.originalText && original !== suggestion.originalText) {
-      console.error('[handleImprove] Position verification failed - text has changed');
-      console.log('[handleImprove] Auto-refreshing suggestions to get updated positions');
-      triggerAnalysis();
-      return;
+    // POSITION VERIFICATION: Check if the text at this position matches what AI analyzed
+    if (suggestion.originalText && original === suggestion.originalText) {
+      positionVerified = true;
+    } else if (suggestion.originalText && original !== suggestion.originalText) {
+      console.warn('[handleImprove] Position verification failed - text has changed:', {
+        expected: suggestion.originalText,
+        found: original
+      });
+      
+      // Try multiple fallback strategies before giving up
+      let canProceed = false;
+      
+      // Strategy 1: Fuzzy match with good score
+      if (fuzzyMatchUsed && fuzzyMatchScore && fuzzyMatchScore > 0.6) {
+        console.log('[handleImprove] Proceeding with fuzzy match (score:', fuzzyMatchScore, ')');
+        canProceed = true;
+        
+        // Warn user if match quality is low
+        if (fuzzyMatchScore < 0.75) {
+          toast.warning('Text position approximate', {
+            description: 'The text has changed slightly. Applying to closest match.',
+          });
+        }
+      }
+      
+      // Strategy 2: Semantic similarity check as last resort
+      if (!canProceed) {
+        const isSimilar = validateSemanticSimilarity(
+          suggestion.originalText,
+          original,
+          0.5 // 50% similarity threshold
+        );
+        
+        if (isSimilar) {
+          console.log('[handleImprove] Proceeding based on semantic similarity');
+          canProceed = true;
+          toast.warning('Text has changed', {
+            description: 'Applying suggestion to similar text. Please review the result.',
+          });
+        }
+      }
+      
+      // If all strategies failed, show error and stop
+      if (!canProceed) {
+        toast.error('Cannot apply suggestion', {
+          description: 'The text has changed too much since analysis. Click "Analyze" to refresh suggestions.',
+          action: {
+            label: 'Refresh',
+            onClick: () => {
+              clearSuggestions();
+              triggerAnalysis(true);
+            }
+          }
+        });
+        
+        trackPositionRecoveryFailed(
+          suggestion.id,
+          suggestion.originalText,
+          !!(suggestion.contextBefore || suggestion.contextAfter)
+        );
+        return;
+      }
     }
     
     console.log('[handleImprove] Applying improvement:', {
@@ -383,16 +520,35 @@ export default function LetterEditorPage({
       start,
       end,
       suggestionId: suggestion.id,
-      currentContentLength: content.length
+      currentContentLength: content.length,
+      positionVerified,
+      fuzzyMatchUsed
     });
     
     // Use the replacement text provided by AI
     const replacement = suggestion.replacement ?? original;
     
-    // Validate replacement to prevent introducing new errors
+    // Frontend validation as final safety net (backend should catch most issues)
     if (replacement !== original && !validateReplacement(original, replacement)) {
-      alert('Cannot apply this correction: It would delete content or introduce errors. Please review the suggestion manually.');
-      console.error('[handleImprove] Blocked bad replacement:', { original, replacement });
+      console.error('[handleImprove] ⚠️ Frontend validation blocked suggestion:', { original, replacement });
+      
+      // Better UX: Toast instead of alert
+      toast.error('Cannot apply this suggestion', {
+        description: 'This change would alter the meaning too much. The AI suggestion may be too aggressive.',
+        action: {
+          label: 'Review',
+          onClick: () => handleSuggestionClick(suggestion)
+        }
+      });
+      
+      // Track that frontend had to block this
+      trackPositionRecoveryFailed(
+        suggestion.id,
+        suggestion.originalText || '',
+        false,
+        Date.now()
+      );
+      
       return;
     }
     
@@ -403,6 +559,17 @@ export default function LetterEditorPage({
     setTimeout(() => setAnimatedRange(null), 2000);
     
     updateContent(newContent);
+    
+    // Track metrics
+    trackSuggestionApplied(
+      suggestion.id,
+      suggestion.category,
+      suggestion.confidence ?? 0.8,
+      suggestionCreatedAt,
+      positionVerified,
+      fuzzyMatchUsed,
+      fuzzyMatchScore
+    );
     
     // Mark suggestion as applied and track metadata
     const newStates = new Map(suggestionStates);
@@ -434,6 +601,16 @@ export default function LetterEditorPage({
   
   // Reject a suggestion (dismiss it permanently)
   const handleRejectSuggestion = (suggestionId: string) => {
+    const suggestion = suggestions.find(s => s.id === suggestionId);
+    if (suggestion) {
+      trackSuggestionRejected(
+        suggestionId,
+        suggestion.category,
+        suggestion.confidence ?? 0.8,
+        Date.now() // TODO: Add creation timestamp to suggestions
+      );
+    }
+    
     const newStates = new Map(suggestionStates);
     newStates.set(suggestionId, 'rejected');
     setSuggestionStates(newStates);
@@ -444,31 +621,25 @@ export default function LetterEditorPage({
     console.log('[handleRejectSuggestion] Rejected suggestion:', suggestionId);
   };
 
-  // Apply all improvements
-  const handleImproveAll = () => {
-    console.log('[handleImproveAll] Starting batch improvements');
+  // Apply non-conflicting suggestions intelligently
+  const handleApplyNonConflicting = () => {
+    console.log('[handleApplyNonConflicting] Starting smart batch apply');
     
     // Filter actionable suggestions
     const actionableSuggestions = suggestions.filter(s => {
       const hasRange = !!s.highlightRange;
-      const hasReplacement = !!s.replacement;
+      const hasReplacement = !!s.replacement && !!s.replacement.trim();
       const isActionable = s.severity === 'critical' || s.severity === 'warning' || s.severity === 'info';
-      
-      if (!hasRange || !hasReplacement || !isActionable) {
-        console.log('[handleImproveAll] Skipping suggestion:', {
-          id: s.id,
-          hasRange,
-          hasReplacement,
-          isActionable,
-          title: s.title
-        });
-      }
-      
       return hasRange && hasReplacement && isActionable;
     });
     
-    // Detect conflicts between suggestions
-    const conflicts: Map<string, string[]> = new Map();
+    if (actionableSuggestions.length === 0) {
+      toast.error('No applicable suggestions available');
+      return;
+    }
+    
+    // Detect all conflicts
+    const conflicts: Map<string, Set<string>> = new Map();
     for (let i = 0; i < actionableSuggestions.length; i++) {
       const suggA = actionableSuggestions[i];
       if (!suggA.highlightRange) continue;
@@ -478,33 +649,60 @@ export default function LetterEditorPage({
         if (!suggB.highlightRange) continue;
         
         if (rangesOverlap(suggA.highlightRange, suggB.highlightRange)) {
-          if (!conflicts.has(suggA.id)) conflicts.set(suggA.id, []);
-          if (!conflicts.has(suggB.id)) conflicts.set(suggB.id, []);
-          conflicts.get(suggA.id)!.push(suggB.id);
-          conflicts.get(suggB.id)!.push(suggA.id);
+          if (!conflicts.has(suggA.id)) conflicts.set(suggA.id, new Set());
+          if (!conflicts.has(suggB.id)) conflicts.set(suggB.id, new Set());
+          conflicts.get(suggA.id)!.add(suggB.id);
+          conflicts.get(suggB.id)!.add(suggA.id);
         }
       }
     }
     
-    // Warn if conflicts detected
-    if (conflicts.size > 0) {
-      const conflictCount = Math.floor(conflicts.size / 2); // Each conflict counted twice
-      const message = `⚠️ Warning: ${conflictCount} suggestion${conflictCount > 1 ? 's have' : ' has'} overlapping text ranges. Applying all may cause unexpected results.\n\nContinue anyway?`;
+    // Greedy algorithm: Select non-conflicting suggestions prioritizing severity
+    const severityPriority = { 'critical': 3, 'warning': 2, 'info': 1, 'success': 0 };
+    const sortedByPriority = [...actionableSuggestions].sort((a, b) => {
+      const priorityDiff = severityPriority[b.severity] - severityPriority[a.severity];
+      if (priorityDiff !== 0) return priorityDiff;
+      // Secondary sort by position (earlier in document)
+      return (a.highlightRange?.start || 0) - (b.highlightRange?.start || 0);
+    });
+    
+    const selectedForApplication = new Set<string>();
+    const conflictingWithSelected = new Set<string>();
+    
+    for (const suggestion of sortedByPriority) {
+      // Skip if this suggestion conflicts with any already selected
+      if (conflictingWithSelected.has(suggestion.id)) {
+        console.log('[handleApplyNonConflicting] Skipping conflicting:', suggestion.id, suggestion.title);
+        continue;
+      }
       
-      if (!confirm(message)) {
-        console.log('[handleImproveAll] User cancelled due to conflicts');
-        return;
+      // Add to selection
+      selectedForApplication.add(suggestion.id);
+      
+      // Mark all its conflicts as unavailable
+      const suggestionConflicts = conflicts.get(suggestion.id);
+      if (suggestionConflicts) {
+        suggestionConflicts.forEach(conflictId => conflictingWithSelected.add(conflictId));
       }
     }
     
-    // Sort suggestions by start position (descending) to avoid index shifting
-    const sortedSuggestions = [...actionableSuggestions]
-      .sort((a, b) => (b.highlightRange?.start || 0) - (a.highlightRange?.start || 0));
+    const toApply = actionableSuggestions.filter(s => selectedForApplication.has(s.id));
+    const skipped = actionableSuggestions.length - toApply.length;
     
-    console.log('[handleImproveAll] Applying', sortedSuggestions.length, 'suggestions');
+    console.log('[handleApplyNonConflicting] Selected', toApply.length, 'non-conflicting suggestions, skipped', skipped);
+    
+    if (toApply.length === 0) {
+      toast.error('All suggestions conflict with each other');
+      return;
+    }
+    
+    // Sort by position descending to avoid index shifting
+    const sortedSuggestions = [...toApply]
+      .sort((a, b) => (b.highlightRange?.start || 0) - (a.highlightRange?.start || 0));
     
     let newContent = content;
     const appliedIds = new Set<string>();
+    const appliedBySeverity = { critical: 0, warning: 0, info: 0 };
     
     for (const suggestion of sortedSuggestions) {
       if (!suggestion.highlightRange || !suggestion.replacement) continue;
@@ -513,7 +711,7 @@ export default function LetterEditorPage({
       
       // Validate positions
       if (start < 0 || end > newContent.length || start >= end) {
-        console.error('[handleImproveAll] Invalid range for suggestion:', suggestion.id);
+        console.error('[handleApplyNonConflicting] Invalid range for suggestion:', suggestion.id);
         continue;
       }
       
@@ -523,18 +721,22 @@ export default function LetterEditorPage({
       
       // Validate replacement
       if (!validateReplacement(original, suggestion.replacement)) {
-        console.warn('[handleImproveAll] Skipping invalid replacement for:', suggestion.id);
+        console.warn('[handleApplyNonConflicting] Skipping invalid replacement for:', suggestion.id);
         continue;
       }
       
-      console.log('[handleImproveAll] Applying:', {
+      console.log('[handleApplyNonConflicting] Applying:', {
         id: suggestion.id,
-        original,
-        replacement: suggestion.replacement
+        severity: suggestion.severity,
+        title: suggestion.title
       });
       
       newContent = before + suggestion.replacement + after;
       appliedIds.add(suggestion.id);
+      
+      if (suggestion.severity === 'critical') appliedBySeverity.critical++;
+      else if (suggestion.severity === 'warning') appliedBySeverity.warning++;
+      else if (suggestion.severity === 'info') appliedBySeverity.info++;
       
       // Mark as applied
       const newStates = new Map(suggestionStates);
@@ -542,10 +744,14 @@ export default function LetterEditorPage({
       setSuggestionStates(newStates);
     }
     
-    console.log('[handleImproveAll] Applied', appliedIds.size, 'improvements');
+    console.log('[handleApplyNonConflicting] Applied', appliedIds.size, 'improvements');
+    
+    if (appliedIds.size === 0) {
+      toast.error('Failed to apply suggestions');
+      return;
+    }
     
     updateContent(newContent);
-    setAppliedSuggestionIds(prev => new Set([...prev, ...appliedIds]));
     
     // Update applied metadata
     const newAppliedMetadata = [
@@ -557,36 +763,80 @@ export default function LetterEditorPage({
       }))
     ];
     setAppliedSuggestionMetadata(newAppliedMetadata);
+    
+    // Show success toast with breakdown
+    const parts = [];
+    if (appliedBySeverity.critical > 0) parts.push(`${appliedBySeverity.critical} critical`);
+    if (appliedBySeverity.warning > 0) parts.push(`${appliedBySeverity.warning} warning`);
+    if (appliedBySeverity.info > 0) parts.push(`${appliedBySeverity.info} info`);
+    
+    const message = `Applied ${appliedIds.size} suggestion${appliedIds.size !== 1 ? 's' : ''} (${parts.join(', ')})`;
+    const skippedMsg = skipped > 0 ? `${skipped} skipped due to conflicts` : '';
+    
+    toast.success(message, {
+      description: skippedMsg,
+      duration: 4000,
+    });
+    
+    // Clear stale suggestions and trigger re-analysis
+    clearSuggestions();
+    setTimeout(() => {
+      triggerAnalysis();
+      console.log('[handleApplyNonConflicting] Triggering fresh analysis after 2s debounce');
+    }, 2000);
   };
 
-  // Group suggestions by category
-  const suggestionsByCategory = suggestions.reduce((acc, suggestion) => {
-    if (!acc[suggestion.category]) {
-      acc[suggestion.category] = [];
+  // Count non-conflicting suggestions that can be safely applied
+  const getNonConflictingCount = () => {
+    const actionableSuggestions = suggestions.filter(s => {
+      const hasRange = !!s.highlightRange;
+      const hasReplacement = !!s.replacement && !!s.replacement.trim();
+      const isActionable = s.severity === 'critical' || s.severity === 'warning' || s.severity === 'info';
+      return hasRange && hasReplacement && isActionable;
+    });
+    
+    if (actionableSuggestions.length === 0) return 0;
+    
+    // Detect conflicts
+    const conflicts: Map<string, Set<string>> = new Map();
+    for (let i = 0; i < actionableSuggestions.length; i++) {
+      const suggA = actionableSuggestions[i];
+      if (!suggA.highlightRange) continue;
+      
+      for (let j = i + 1; j < actionableSuggestions.length; j++) {
+        const suggB = actionableSuggestions[j];
+        if (!suggB.highlightRange) continue;
+        
+        if (rangesOverlap(suggA.highlightRange, suggB.highlightRange)) {
+          if (!conflicts.has(suggA.id)) conflicts.set(suggA.id, new Set());
+          if (!conflicts.has(suggB.id)) conflicts.set(suggB.id, new Set());
+          conflicts.get(suggA.id)!.add(suggB.id);
+          conflicts.get(suggB.id)!.add(suggA.id);
+        }
+      }
     }
-    acc[suggestion.category].push(suggestion);
-    return acc;
-  }, {} as Record<string, AISuggestion[]>);
-
-  const categoryLabels = {
-    critical: 'Critical Issues',
-    grammar: 'Grammar & Style',
-    tone: 'Tone & Voice',
-    structure: 'Structure',
-    'program-alignment': 'Program Alignment',
-    qualifications: 'Qualifications',
-    motivation: 'Motivation & Goals',
+    
+    // Greedy selection
+    const severityPriority = { 'critical': 3, 'warning': 2, 'info': 1, 'success': 0 };
+    const sortedByPriority = [...actionableSuggestions].sort((a, b) => 
+      severityPriority[b.severity] - severityPriority[a.severity]
+    );
+    
+    const selected = new Set<string>();
+    const conflictingWithSelected = new Set<string>();
+    
+    for (const suggestion of sortedByPriority) {
+      if (conflictingWithSelected.has(suggestion.id)) continue;
+      selected.add(suggestion.id);
+      const suggestionConflicts = conflicts.get(suggestion.id);
+      if (suggestionConflicts) {
+        suggestionConflicts.forEach(conflictId => conflictingWithSelected.add(conflictId));
+      }
+    }
+    
+    return selected.size;
   };
 
-  const categoryIcons = {
-    critical: '🚨',
-    grammar: '📝',
-    tone: '🎯',
-    structure: '📋',
-    'program-alignment': '🎓',
-    qualifications: '⭐',
-    motivation: '💡',
-  };
 
   // Show loading state while fetching letter
   if (isLoadingLetter) {
@@ -621,9 +871,9 @@ export default function LetterEditorPage({
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-full">
       {/* Left Column - Editor */}
-      <div className="flex-1 flex flex-col border-r">
+      <div className="flex-1 min-w-0 flex flex-col border-r">
         {/* Header */}
         <div className="border-b p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -692,8 +942,8 @@ export default function LetterEditorPage({
         </div>
 
         {/* Editor Area */}
-        <div className="flex-1 p-4 relative overflow-hidden">
-          <div className="h-full relative">
+        <div className="flex-1 px-6 py-4 overflow-hidden">
+          <div className="h-full relative w-full overflow-hidden">
             {/* Highlight Layer (behind textarea) */}
             <div
               ref={highlightLayerRef}
@@ -818,9 +1068,10 @@ export default function LetterEditorPage({
               onChange={(e) => updateContent(e.target.value)}
               onScroll={handleScroll}
               placeholder="Start writing your application letter here..."
-              className="h-full !min-h-full resize-none bg-transparent relative z-10 font-mono text-sm leading-relaxed"
+              className="h-full min-h-full resize-none bg-transparent relative z-10 font-mono text-sm leading-relaxed"
               style={{
                 caretColor: 'currentColor',
+                fieldSizing: 'fixed',
               }}
             />
           </div>
@@ -853,32 +1104,67 @@ export default function LetterEditorPage({
       </div>
 
       {/* Right Column - AI Suggestions */}
-      <div className="w-96 flex flex-col bg-muted/5 h-screen">
-        <div className="border-b p-4 flex-shrink-0">
+      <div className="w-96 shrink-0 flex flex-col bg-muted/5 overflow-hidden">
+        <div className="border-b p-4 shrink-0">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <SparklesIcon className="h-5 w-5 text-primary" />
               <h2 className="font-semibold">AI Writing Assistant</h2>
             </div>
-            <Button 
-              size="sm" 
-              variant="outline"
-              onClick={() => triggerAnalysis(true)}
-              disabled={isAnalyzing || !content.trim()}
-            >
-              <SparklesIcon className="h-3 w-3 mr-1" />
-              Analyze
-            </Button>
+            <div className="flex gap-2">
+              <Button 
+                size="sm" 
+                variant={isStale && content.trim() ? "default" : "outline"}
+                onClick={() => triggerAnalysis(true)}
+                disabled={isAnalyzing || !content.trim()}
+              >
+                <SparklesIcon className="h-3 w-3 mr-1" />
+                Analyze
+              </Button>
+            </div>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {suggestions.length > 0
-              ? `${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''} found`
-              : 'Type to get suggestions'}
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {suggestions.length > 0
+                ? (() => {
+                    const safeCount = getNonConflictingCount();
+                    return safeCount > 0
+                      ? `${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''} (${safeCount} safe to apply)`
+                      : `${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''}`;
+                  })()
+                : 'Type to get suggestions'}
+            </p>
+            {suggestions.length > 0 && getNonConflictingCount() > 0 && (
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleApplyNonConflicting}
+                disabled={isAnalyzing}
+                className="h-7 text-xs"
+              >
+                <CheckIcon className="h-3 w-3 mr-1" />
+                Apply {getNonConflictingCount()} Safe
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
           <div className="p-4">
+            {isStale && suggestions.length > 0 && !isAnalyzing && (
+              <div className="mb-4 p-2 bg-amber-50 border border-amber-200 rounded text-[10px] text-amber-800 flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                <AlertTriangleIcon className="h-3 w-3 shrink-0" />
+                <span>Text changed since last analysis. Results may be out of sync.</span>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="h-4 w-4 ml-auto hover:bg-amber-100"
+                  onClick={() => triggerAnalysis(true)}
+                >
+                  <RefreshCwIcon className="h-2 w-2" />
+                </Button>
+              </div>
+            )}
             {/* Overall Assessment - with loading skeleton */}
             {isAnalyzing ? (
               <Card className="mb-4 border-primary/20 bg-primary/5">
@@ -949,8 +1235,17 @@ export default function LetterEditorPage({
                     </>
                   ) : analysisStatus === 'idle' ? (
                     <>
-                      <Loader2Icon className="h-8 w-8 mx-auto mb-2 animate-spin opacity-50" />
-                      <p>Waiting for analysis...</p>
+                      <SparklesIcon className="h-8 w-8 mx-auto mb-2 text-primary opacity-50" />
+                      <p className="font-medium mb-1">AI Writing Assistant</p>
+                      <p className="text-xs mb-4">Get personalized feedback on your grammar, tone, and program alignment.</p>
+                      <Button 
+                        size="sm" 
+                        onClick={() => triggerAnalysis(true)}
+                        disabled={isAnalyzing || !content.trim()}
+                      >
+                        <SparklesIcon className="h-3 w-3 mr-1" />
+                        Analyze Document
+                      </Button>
                     </>
                   ) : analysisStatus === 'error' ? (
                     <>
@@ -974,30 +1269,46 @@ export default function LetterEditorPage({
                 </CardContent>
               </Card>
             ) : (
-              <Accordion type="multiple" defaultValue={Object.keys(suggestionsByCategory)} className="space-y-2">
-                {Object.entries(suggestionsByCategory).map(([category, categorySuggestions]) => (
+              <Accordion 
+                type="multiple" 
+                defaultValue={typeOrder.filter(t => suggestionsByType[t].length > 0)} 
+                className="space-y-4"
+              >
+                {typeOrder.filter(type => suggestionsByType[type].length > 0).map((type) => {
+                  const typeSuggestions = suggestionsByType[type];
+                  return (
                   <AccordionItem
-                    key={category}
-                    value={category}
-                    className="border rounded-lg px-3"
+                    key={type}
+                    value={type}
+                    className={cn(
+                      "border rounded-lg px-3",
+                      type === 'objective' && "border-blue-100 bg-blue-50/10",
+                      type === 'strategic' && "border-purple-100 bg-purple-50/10"
+                    )}
                   >
                     <AccordionTrigger className="hover:no-underline py-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-lg">{categoryIcons[category as keyof typeof categoryIcons]}</span>
-                        <span className="font-medium text-sm">
-                          {categoryLabels[category as keyof typeof categoryLabels]}
-                        </span>
-                        <Badge variant="secondary" className="ml-1">
-                          {categorySuggestions.length}
+                        <span className="text-lg">{typeIcons[type]}</span>
+                        <div className="text-left">
+                          <span className="font-semibold text-sm block">
+                            {typeLabels[type]}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground block font-normal leading-tight max-w-50">
+                            {typeDescriptions[type]}
+                          </span>
+                        </div>
+                        <Badge variant="secondary" className="ml-auto">
+                          {typeSuggestions.length}
                         </Badge>
                       </div>
                     </AccordionTrigger>
                     <AccordionContent className="space-y-3 pt-2 pb-4">
-                      {categorySuggestions.map((suggestion) => {
+                      {typeSuggestions.map((suggestion) => {
                         const suggestionState = suggestionStates.get(suggestion.id);
                         const isApplied = suggestionState === 'applied';
                         const conflictingIds = suggestionConflicts.get(suggestion.id) || [];
                         const hasConflicts = conflictingIds.length > 0;
+                        const isStrategic = type === 'strategic';
                         
                         // Debug: Log replacement value for problematic suggestions
                         if (suggestion.replacement !== undefined && suggestion.replacement !== null) {
@@ -1030,6 +1341,10 @@ export default function LetterEditorPage({
                                 <Badge variant="default" className="bg-green-600 hover:bg-green-700 text-xs">
                                   Applied ✓
                                 </Badge>
+                              ) : isStrategic ? (
+                                <Badge variant="secondary" className="bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-100 text-xs">
+                                  Strategic Tip
+                                </Badge>
                               ) : (
                               <Badge
                                 variant={
@@ -1053,12 +1368,30 @@ export default function LetterEditorPage({
                                 {suggestion.title}
                               </CardTitle>
                               {suggestion.confidence !== undefined && (
-                                <span 
-                                  className="text-xs text-muted-foreground" 
-                                  title={`AI Confidence: ${Math.round(suggestion.confidence * 100)}%`}
-                                >
-                                  {suggestion.confidence >= 0.9 ? '●' : suggestion.confidence >= 0.7 ? '◐' : '○'}
-                                </span>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <div className="flex flex-col items-end gap-0.5">
+                                    <Progress 
+                                      value={suggestion.confidence * 100} 
+                                      className={cn(
+                                        "w-16 h-1.5",
+                                        suggestion.confidence >= 0.9 && "bg-green-100",
+                                        suggestion.confidence >= 0.7 && suggestion.confidence < 0.9 && "bg-yellow-100",
+                                        suggestion.confidence < 0.7 && "bg-gray-100"
+                                      )}
+                                    />
+                                    <span 
+                                      className={cn(
+                                        "text-[10px] font-medium",
+                                        suggestion.confidence >= 0.9 && "text-green-700",
+                                        suggestion.confidence >= 0.7 && suggestion.confidence < 0.9 && "text-yellow-700",
+                                        suggestion.confidence < 0.7 && "text-gray-500"
+                                      )}
+                                      title={`AI Confidence: ${Math.round(suggestion.confidence * 100)}%`}
+                                    >
+                                      {Math.round(suggestion.confidence * 100)}%
+                                    </span>
+                                  </div>
+                                </div>
                               )}
                             </div>
                           </CardHeader>
@@ -1153,7 +1486,8 @@ export default function LetterEditorPage({
                       })}
                     </AccordionContent>
                   </AccordionItem>
-                ))}
+                  );
+                })}
               </Accordion>
             )}
           </div>

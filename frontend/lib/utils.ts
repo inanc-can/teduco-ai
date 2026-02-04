@@ -56,7 +56,7 @@ export function splitIntoParagraphs(content: string): Paragraph[] {
     if (isNewParagraph && currentParagraph.trim()) {
       // Finish current paragraph
       const paragraphText = currentParagraph.trim();
-      const hash = hashParagraph(paragraphText);
+      const hash = hashParagraphSync(paragraphText);
       
       paragraphs.push({
         hash,
@@ -80,7 +80,7 @@ export function splitIntoParagraphs(content: string): Paragraph[] {
   // Add final paragraph
   if (currentParagraph.trim()) {
     const paragraphText = currentParagraph.trim();
-    const hash = hashParagraph(paragraphText);
+    const hash = hashParagraphSync(paragraphText);
     
     paragraphs.push({
       hash,

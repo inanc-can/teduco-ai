@@ -6,6 +6,7 @@ import type { ApplicationLetter } from '@/lib/types/letters';
 export interface AnalyzeLetterParams {
   content: string;
   programSlug?: string;
+  phase?: 'objective' | 'subjective' | 'both';
 }
 
 export interface AnalyzeLetterResponse {
@@ -150,8 +151,18 @@ export function useAutoSaveLetter() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ letterId, content }: { letterId: string; content: string }) =>
-      apiClient.autoSaveLetter(letterId, content),
+    mutationFn: ({
+      letterId,
+      content,
+      rejectedSuggestionIds,
+      appliedSuggestionMetadata,
+    }: {
+      letterId: string;
+      content: string;
+      rejectedSuggestionIds?: string[];
+      appliedSuggestionMetadata?: Array<{ id: string; appliedAt: string; historyEntryId?: string }>;
+    }) =>
+      apiClient.autoSaveLetter(letterId, content, rejectedSuggestionIds, appliedSuggestionMetadata),
     onSuccess: (updatedLetter) => {
       // Optimistically update the cache
       queryClient.setQueryData(

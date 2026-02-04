@@ -13,7 +13,7 @@ export interface HighlightRange {
 
 export interface AISuggestion {
   id: string;
-  category: 'critical' | 'grammar' | 'tone' | 'structure' | 'program-alignment' | 'qualifications' | 'motivation';
+  category: 'critical' | 'grammar' | 'spelling' | 'punctuation' | 'conciseness' | 'passive-voice' | 'clarity' | 'tone' | 'style' | 'structure' | 'program-alignment' | 'content' | 'qualifications' | 'motivation';
   severity: 'critical' | 'warning' | 'info' | 'success';
   title: string;
   description: string;
@@ -25,6 +25,7 @@ export interface AISuggestion {
   contextAfter?: string; // 20 chars after for position recovery
   originalText?: string; // The original text that was analyzed by AI
   reasoning?: string; // Educational explanation of WHY this change improves writing
+  type?: 'objective' | 'strategic';
 }
 
 export interface ApplicationLetter {
@@ -50,6 +51,7 @@ export interface ApplicationLetter {
 export interface ApplicationLetterWithSuggestions extends ApplicationLetter {
   suggestions: AISuggestion[];
   overallFeedback?: string;
+  correctedText?: string;  // Phase 1: Complete corrected text
 }
 
 export interface LetterDraft {

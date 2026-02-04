@@ -1,15 +1,17 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 
 class Settings(BaseSettings):
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra='ignore'  # Ignore extra env vars not in schema
+    )
+    
     supabase_url: str
     supabase_service_key: str
     supabase_bucket: str = "user-documents"
-
-    class Config:
-        env_file = ".env"
-        # Allow both uppercase and lowercase environment variables
-        case_sensitive = False
 
 @lru_cache
 def get_settings():

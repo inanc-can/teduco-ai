@@ -59,6 +59,8 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
   const suggestions: AISuggestion[] = [];
   const wordCount = content.trim().split(/\s+/).length;
 
+  // == 1. Objective Corrections (Grammarly Stage) ==
+
   // Grammar suggestions
   if (content.toLowerCase().includes('i am very passionate')) {
     const index = content.toLowerCase().indexOf('i am very passionate');
@@ -66,28 +68,47 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
       id: 'gram-1',
       category: 'grammar',
       severity: 'info',
-      title: 'Avoid weak intensifiers',
-      description: '"Very" is often an unnecessary intensifier that weakens your statement.',
-      suggestion: 'Consider replacing "very passionate" with a stronger word like "deeply passionate" or "enthusiastic".',
+      type: 'objective',
+      title: 'Stronger alternative',
+      description: '"Very" is a weak intensifier.',
+      suggestion: 'Use "deeply" or "extremely" instead of "very".',
+      replacement: 'I am deeply passionate',
       highlightRange: { start: index, end: index + 20 },
     });
   }
 
-  if (content.match(/\b(alot|a lot)\b/gi)) {
-    const match = content.match(/\b(alot|a lot)\b/gi);
-    if (match) {
-      const index = content.indexOf(match[0]);
-      suggestions.push({
-        id: 'gram-2',
-        category: 'grammar',
-        severity: 'warning',
-        title: 'Spelling error',
-        description: 'Common spelling mistake detected.',
-        suggestion: 'Use "a lot" (two words) or consider "many" or "numerous" for formal writing.',
-        highlightRange: { start: index, end: index + match[0].length },
-      });
-    }
+  // Conciseness
+  if (content.toLowerCase().includes('due to the fact that')) {
+    const index = content.toLowerCase().indexOf('due to the fact that');
+    suggestions.push({
+      id: 'conc-1',
+      category: 'conciseness',
+      severity: 'info',
+      type: 'objective',
+      title: 'Wordy phrasing',
+      description: '"Due to the fact that" can be shortened.',
+      suggestion: 'Use "Because" for better conciseness.',
+      replacement: 'Because',
+      highlightRange: { start: index, end: index + 20 },
+    });
   }
+
+  // Passive Voice
+  if (content.toLowerCase().includes('is being conducted')) {
+    const index = content.toLowerCase().indexOf('is being conducted');
+    suggestions.push({
+      id: 'pass-1',
+      category: 'passive-voice',
+      severity: 'info',
+      type: 'objective',
+      title: 'Passive voice detected',
+      description: 'Active voice is usually more engaging.',
+      suggestion: 'Rephrase using an active verb.',
+      highlightRange: { start: index, end: index + 18 },
+    });
+  }
+
+  // == 2. Strategic Advice (Consultant Stage) ==
 
   // Tone suggestions
   if (content.toLowerCase().includes('i think') || content.toLowerCase().includes('i believe')) {
@@ -97,9 +118,11 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
       id: 'tone-1',
       category: 'tone',
       severity: 'info',
+      type: 'strategic',
       title: 'Use more assertive language',
       description: 'Phrases like "I think" or "I believe" can sound uncertain in application letters.',
       suggestion: 'State your points directly. Instead of "I think I would be a good fit", write "I am well-suited for this program because..."',
+      reasoning: 'At TUM, admissions committees look for confidence and clear self-assessment. Avoiding hedges makes your application stronger.',
       highlightRange: { start: index, end: index + phrase.length },
     });
   }
@@ -109,9 +132,11 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
       id: 'tone-2',
       category: 'tone',
       severity: 'warning',
+      type: 'strategic',
       title: 'Missing formal greeting',
       description: 'Your letter should start with a formal greeting.',
       suggestion: 'Begin with "Dear Admissions Committee," or "Dear Sir/Madam," to establish a professional tone.',
+      reasoning: 'German academic culture values formal etiquette. Missing a greeting can be seen as a lack of professionalism.',
     });
   }
 
@@ -121,18 +146,22 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
       id: 'struct-1',
       category: 'structure',
       severity: 'warning',
+      type: 'strategic',
       title: 'Letter may be too short',
       description: 'Your application letter is quite brief. Most strong applications are 300-500 words.',
       suggestion: 'Consider expanding on your academic background, relevant experience, and specific interest in this program.',
+      reasoning: 'A short letter implies a lack of depth or motivation for the specific TUM program.',
     });
   } else if (wordCount > 600) {
     suggestions.push({
       id: 'struct-2',
       category: 'structure',
       severity: 'info',
+      type: 'strategic',
       title: 'Letter may be too long',
       description: 'Your letter exceeds 600 words. Admissions officers prefer concise, focused letters.',
       suggestion: 'Review your content and remove any redundant information. Aim for 300-500 words.',
+      reasoning: 'TUM reviewers often have thousands of applications; being concise shows respect for their time and clarity of thought.',
     });
   }
 
@@ -141,22 +170,26 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
       id: 'struct-3',
       category: 'structure',
       severity: 'warning',
+      type: 'strategic',
       title: 'Missing closing statement',
       description: 'Your letter should end with a formal closing.',
       suggestion: 'End with "Sincerely," or "Best regards," followed by your name.',
+      reasoning: 'A formal closing is standard in German academic applications.',
     });
   }
 
-  // Program-specific suggestions
+  // == 3. Program-Specific Strategy (Expert Stage) ==
   if (programSlug === 'informatics-bachelor-of-science-bsc') {
     if (!content.toLowerCase().includes('programming') && !content.toLowerCase().includes('software')) {
       suggestions.push({
         id: 'prog-1',
         category: 'program-alignment',
         severity: 'info',
+        type: 'strategic',
         title: 'Highlight technical skills',
         description: 'For an Informatics program, emphasize your programming and technical experience.',
         suggestion: 'Mention specific programming languages, projects, or technologies you\'ve worked with to demonstrate your readiness.',
+        reasoning: 'TUM Informatics is highly technical. Highlighting these skills immediately signals your readiness for the coursework.',
       });
     }
 
@@ -165,9 +198,11 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
         id: 'prog-2',
         category: 'program-alignment',
         severity: 'info',
+        type: 'strategic',
         title: 'Emphasize analytical thinking',
         description: 'TUM\'s Informatics program values problem-solving and abstract thinking.',
         suggestion: 'Describe situations where you\'ve applied analytical or problem-solving skills, such as in mathematics, logic puzzles, or coding challenges.',
+        reasoning: 'Demonstrating an "analytical mindset" is key for the aptitude assessment score at TUM.',
       });
     }
   }
@@ -178,33 +213,26 @@ export function generateMockSuggestions(content: string, programSlug?: string): 
         id: 'prog-3',
         category: 'program-alignment',
         severity: 'warning',
+        type: 'strategic',
         title: 'Mention research experience',
         description: 'Master\'s programs value research background and academic rigor.',
         suggestion: 'Discuss any research projects, bachelor thesis, or independent studies you\'ve completed. Mention specific mathematical areas that interest you.',
-      });
-    }
-
-    if (!content.toLowerCase().includes('proof') && !content.toLowerCase().includes('theorem')) {
-      suggestions.push({
-        id: 'prog-4',
-        category: 'program-alignment',
-        severity: 'info',
-        title: 'Demonstrate mathematical maturity',
-        description: 'Show your readiness for advanced mathematical study.',
-        suggestion: 'Reference your experience with proof-based courses, advanced topics, or mathematical research to demonstrate your preparation.',
+        reasoning: 'TUM Master\'s programs are research-oriented. Evidence of prior research strongly correlates with success in the Master\'s thesis phase.',
       });
     }
   }
 
   // General program alignment
-  if (!content.toLowerCase().includes('tum') && !content.toLowerCase().includes('technical university of munich')) {
+  if (!content.toLowerCase().includes('double degree') && programSlug?.includes('master')) {
     suggestions.push({
-      id: 'prog-5',
-      category: 'program-alignment',
+      id: 'prog-4',
+      category: 'content',
       severity: 'info',
-      title: 'Mention the university specifically',
-      description: 'Demonstrate your genuine interest by referencing TUM specifically.',
-      suggestion: 'Explain why TUM\'s program is particularly appealing to you. Mention specific faculty, research groups, or program features that attract you.',
+      type: 'strategic',
+      title: 'Mention international perspective',
+      description: 'TUM values international experience and global perspective.',
+      suggestion: 'Consider mentioning any international projects or your interest in TUM\'s global network.',
+      reasoning: 'TUM is one of Europe\'s most international universities. Showing a global mindset fits the university\'s "The Entrepreneurial University" vision.',
     });
   }
 

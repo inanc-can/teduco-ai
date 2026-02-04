@@ -457,9 +457,14 @@ class ApiClient {
         description: string
         suggestion: string
         replacement?: string
+        type?: string
         highlightRange?: { start: number; end: number }
+        confidence?: number
+        originalText?: string
+        reasoning?: string
       }>
       wordCount: number
+      overallFeedback?: string
       analysisMetadata?: Record<string, unknown>
     }>('/letters/analyze', data)
   }
@@ -540,8 +545,17 @@ class ApiClient {
   /**
    * Auto-save letter content (lightweight endpoint for frequent saves)
    */
-  async autoSaveLetter(letterId: string, content: string): Promise<ApplicationLetter> {
-    return this.patch<ApplicationLetter>(`/letters/${letterId}/auto-save`, { content })
+  async autoSaveLetter(
+    letterId: string,
+    content: string,
+    rejectedSuggestionIds?: string[],
+    appliedSuggestionMetadata?: Array<{ id: string; appliedAt: string; historyEntryId?: string }>
+  ): Promise<ApplicationLetter> {
+    return this.patch<ApplicationLetter>(`/letters/${letterId}/auto-save`, {
+      content,
+      rejected_suggestion_ids: rejectedSuggestionIds,
+      applied_suggestion_metadata: appliedSuggestionMetadata,
+    })
   }
 
   /**

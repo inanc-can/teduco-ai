@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { LRUCache } from 'lru-cache';
 import { AISuggestion } from '@/lib/types/letters';
 import { generateMockSuggestions } from '@/lib/mocks/letter-suggestions';
 import { useAnalyzeLetter } from '@/hooks/api/use-letters';
@@ -26,6 +27,7 @@ interface UseLetterAnalysisOptions {
   debounceMs?: number;
   useMockData?: boolean; // Toggle between mock and real API
   enableParagraphCaching?: boolean; // Enable smart paragraph-level caching
+  autoAnalyze?: boolean; // Enable automatic analysis on content change (default: true)
 }
 
 interface UseLetterAnalysisReturn {
@@ -34,6 +36,7 @@ interface UseLetterAnalysisReturn {
   autoSaveStatus: AutoSaveStatus;
   analysisStatus: AnalysisStatus;
   isAnalyzing: boolean;
+  isStale: boolean;
   wordCount: number;
   triggerAnalysis: (force?: boolean) => void;
   clearSuggestions: () => void;
@@ -53,6 +56,7 @@ export function useLetterAnalysis({
   debounceMs = 1500, // Reduced from 3500ms - paragraph caching makes this safe
   useMockData = false,
   enableParagraphCaching = true,
+  autoAnalyze = false, // Default to false - on-demand analysis only
 }: UseLetterAnalysisOptions): UseLetterAnalysisReturn {
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
   const [overallFeedback, setOverallFeedback] = useState<string | null>(null);
@@ -70,8 +74,14 @@ export function useLetterAnalysis({
   const lastAnalyzedContentRef = useRef<string>('');
   const lastAnalyzedProgramRef = useRef<string | undefined>(programSlug);
   
-  // Paragraph-level caching
-  const paragraphCacheRef = useRef<Map<string, ParagraphCache>>(new Map());
+  // Paragraph-level caching with LRU cache to prevent memory leaks
+  const paragraphCacheRef = useRef<LRUCache<string, ParagraphCache>>(
+    new LRUCache<string, ParagraphCache>({
+      max: 100, // Max 100 cached paragraphs
+      ttl: PARAGRAPH_CACHE_TTL, // 5 minutes TTL
+      updateAgeOnGet: true, // Refresh TTL on access
+    })
+  );
   const lastParagraphsRef = useRef<Paragraph[]>([]);
   const triggerAnalysisRef = useRef<(() => void) | null>(null);
 
@@ -142,19 +152,15 @@ export function useLetterAnalysis({
       programSlug,
     });
 
-    // Clean expired cache entries
-    const now = Date.now();
-    for (const [hash, cache] of paragraphCacheRef.current.entries()) {
-      if (now - cache.timestamp > PARAGRAPH_CACHE_TTL) {
-        paragraphCacheRef.current.delete(hash);
-      }
-    }
+    // LRU cache automatically handles TTL and size limits
+    // No manual cleanup needed
 
     setAnalysisStatus('analyzing');
     
     if (useMockData) {
       // Mock with paragraph caching simulation
       setTimeout(() => {
+        const now = Date.now();
         const newSuggestions = generateMockSuggestions(content, programSlug);
         
         if (enableParagraphCaching && changedHashes.size < currentParagraphs.length) {
@@ -207,7 +213,7 @@ export function useLetterAnalysis({
         
         // Analyze only changed content
         analyzeWithAPI(
-          { content: analyzableContent, programSlug },
+          { content: analyzableContent, programSlug, phase: 'both' },
           {
             onSuccess: (data) => {
               console.log('[useLetterAnalysis] Partial analysis complete:', {
@@ -223,7 +229,11 @@ export function useLetterAnalysis({
                 description: sug.description,
                 suggestion: sug.suggestion,
                 replacement: sug.replacement,
+                type: sug.type as AISuggestion['type'],
                 highlightRange: sug.highlightRange,
+                originalText: sug.originalText,
+                reasoning: sug.reasoning,
+                confidence: sug.confidence,
               }));
 
               // Assign new suggestions to changed paragraphs
@@ -233,6 +243,7 @@ export function useLetterAnalysis({
               );
 
               // Update cache for changed paragraphs
+              const now = Date.now();
               for (const [hash, sugg] of freshSuggestionMap.entries()) {
                 paragraphCacheRef.current.set(hash, {
                   suggestions: sugg as AISuggestion[],
@@ -248,6 +259,9 @@ export function useLetterAnalysis({
               );
 
               setSuggestions(merged as AISuggestion[]);
+              if (data.overallFeedback) {
+                setOverallFeedback(data.overallFeedback);
+              }
               setAnalysisStatus('complete');
               lastAnalyzedContentRef.current = content;
               lastAnalyzedProgramRef.current = programSlug;
@@ -267,9 +281,15 @@ export function useLetterAnalysis({
         console.log('[useLetterAnalysis] Full analysis - no cache benefit');
         
         analyzeWithAPI(
-          { content, programSlug },
+          { content, programSlug, phase: 'both' },
           {
             onSuccess: (data) => {
+              console.log('[useLetterAnalysis] Analysis complete:', { 
+                suggestions: data.suggestions.length,
+                phase: data.analysisMetadata?.phase,
+                cached: data.analysisMetadata?.cached
+              });
+              
               const mappedSuggestions: AISuggestion[] = data.suggestions.map((sug) => ({
                 id: sug.id,
                 category: sug.category as AISuggestion['category'],
@@ -278,10 +298,15 @@ export function useLetterAnalysis({
                 description: sug.description,
                 suggestion: sug.suggestion,
                 replacement: sug.replacement,
+                type: sug.type as AISuggestion['type'],
                 highlightRange: sug.highlightRange,
+                originalText: sug.originalText,
+                reasoning: sug.reasoning,
+                confidence: sug.confidence,
               }));
 
               // Cache all paragraphs
+              const now = Date.now();
               const suggestionMap = assignSuggestionsToParagraphs(mappedSuggestions, currentParagraphs);
               for (const [hash, sugg] of suggestionMap.entries()) {
                 paragraphCacheRef.current.set(hash, {
@@ -291,6 +316,9 @@ export function useLetterAnalysis({
               }
 
               setSuggestions(mappedSuggestions);
+              if (data.overallFeedback) {
+                setOverallFeedback(data.overallFeedback);
+              }
               setAnalysisStatus('complete');
               lastAnalyzedContentRef.current = content;
               lastAnalyzedProgramRef.current = programSlug;
@@ -316,6 +344,11 @@ export function useLetterAnalysis({
 
   // Debounced analysis
   useEffect(() => {
+    // Skip debounce if auto-analyze is disabled
+    if (!autoAnalyze) {
+      return;
+    }
+
     // Clear existing timer
     if (analysisTimerRef.current) {
       clearTimeout(analysisTimerRef.current);
@@ -339,7 +372,7 @@ export function useLetterAnalysis({
         clearTimeout(analysisTimerRef.current);
       }
     };
-  }, [content, programSlug, debounceMs, triggerAnalysis]); // Added programSlug to re-trigger analysis when program changes
+  }, [content, programSlug, debounceMs, triggerAnalysis, autoAnalyze]); // Added autoAnalyze to re-evaluate when it changes
 
   // Auto-save logic
   useEffect(() => {
@@ -404,6 +437,7 @@ export function useLetterAnalysis({
     autoSaveStatus,
     analysisStatus,
     isAnalyzing: analysisStatus === 'analyzing' || isApiPending,
+    isStale: content.trim() !== lastAnalyzedContentRef.current.trim() || programSlug !== lastAnalyzedProgramRef.current,
     wordCount,
     triggerAnalysis,
     clearSuggestions,

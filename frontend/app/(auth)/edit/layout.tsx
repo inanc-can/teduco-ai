@@ -41,7 +41,7 @@ export default function ApplicationLettersLayout({
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex w-screen overflow-hidden">
       {/* Left Sidebar - Letter Drafts */}
       <aside className="w-64 border-r bg-muted/10 flex flex-col">
         <div className="p-4 border-b">
@@ -103,7 +103,7 @@ export default function ApplicationLettersLayout({
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1">
         {children}
       </main>
 
