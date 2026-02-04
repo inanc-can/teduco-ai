@@ -1,13 +1,17 @@
 import os
+import httpx
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from langchain_core.documents import Document  # type: ignore
 
 from supabase import create_client
+from supabase.lib.client_options import SyncClientOptions
 from core.config import get_settings
 
 settings = get_settings()
-supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+_httpx_client = httpx.Client(http2=False)
+_options = SyncClientOptions(httpx_client=_httpx_client)
+supabase = create_client(settings.supabase_url, settings.supabase_service_key, options=_options)
 
 # ---------- DEGREE PROGRAM LISTING ----------
 def list_all_degree_programs(table: str = "rag_uni_degree_documents") -> List[Dict[str, str]]:

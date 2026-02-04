@@ -303,12 +303,12 @@ def send_message(
         # Call AI service to generate response with chat history
         if rag_pipeline:
             try:
-                # Fetch recent chat history for context
+                # Fetch recent chat history for context (enough for follow-ups and full conversation)
                 history_response = supabase.table("messages")\
                     .select("role, content")\
                     .eq("chat_id", chat_id)\
                     .order("created_at", desc=False)\
-                    .limit(10)\
+                    .limit(50)\
                     .execute()
                 
                 # Format chat history for the RAG pipeline (exclude the current message just added)

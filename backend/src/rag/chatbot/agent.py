@@ -97,6 +97,7 @@ class Agent:
             "[fetch_profile, fetch_user_docs, search_kb, search_user_docs, answer].\n"
             "Output a JSON object with a single key 'actions' whose value is an ordered list of actions. "
             'Only include actions that are necessary. Example: {"actions": ["search_kb","answer"]}\n'
+            "The answer step may include asking one or two follow-up questions or suggesting the user upload documents if the question is vague or info is missing.\n"
             "User profile summary (if available):\n" + (user_profile_summary or "None") + "\n"
             "Question:\n" + question + "\n"
         )
@@ -125,7 +126,7 @@ class Agent:
             parsed = json.loads(content)
             actions = parsed.get("actions", [])
             actions = [a.strip().lower() for a in actions]
-            # Ensure KB is consulted for application/university questions
+            # Ensure information center is consulted for application/university questions
             ql = question.lower()
             must_kb_keywords = [
                 "apply", "application", "admission", "requirements", "deadline",
@@ -146,7 +147,7 @@ class Agent:
                     actions.append(a)
             if not actions:
                 actions = ["search_kb", "answer"]
-            # Enforce KB for application/university keywords
+            # Enforce information center for application/university keywords
             ql = question.lower()
             must_kb_keywords = [
                 "apply", "application", "admission", "requirements", "deadline",
@@ -301,10 +302,10 @@ class Agent:
         if any(t in question_lower for t in lang_triggers):
             expansions.append("language proficiency language certificate language requirement")
 
-        # Documents needed / eligibility check
+        # Documents needed / eligibility check (include "list" for "can you give me a list?")
         doc_triggers = ["document", "submit", "upload", "transcript", "diploma", "cv", "motivation", 
                        "what do i need", "do i need", "enough", "ready", "missing", "checklist", 
-                       "requirements", "required", "prepare"]
+                       "requirements", "required", "prepare", "list"]
         if any(t in question_lower for t in doc_triggers):
             expansions.append("documents required for online application enrollment higher education entrance qualification proof transcript diploma cv resume passport")
 
@@ -320,9 +321,132 @@ class Agent:
 
         return question
 
+    def _query_for_retrieval(self, question: str, chat_history: Optional[List[Dict[str, str]]] = None) -> str:
+        """Build a retrieval-effective query for short or follow-up questions using chat context.
+
+        When the user asks something vague like 'can you give me a list?' after discussing a program,
+        we need to search for the right program's requirements. This method augments the question
+        with program/degree/requirement keywords from recent messages so hybrid search finds the
+        correct chunks (e.g. Informatics BSc required documents).
+        """
+        if not chat_history or len(chat_history) == 0:
+            return question
+
+        question_stripped = question.strip()
+        question_lower = question_stripped.lower()
+
+        # Follow-up cues: short question or phrases that refer to previous context
+        follow_up_cues = [
+            "list", "requirements", "what about", "and?", "that", "them", "give me",
+            "what are", "which", "how about", "same", "those", "it", "this program"
+        ]
+        is_short = len(question_stripped) < 50
+        is_follow_up = any(c in question_lower for c in follow_up_cues) or is_short
+
+        if not is_follow_up:
+            return question
+
+        # Collect text from the last few messages (newest first when iterating backwards)
+        recent_texts = []
+        for i in range(len(chat_history) - 1, max(-1, len(chat_history) - 5), -1):
+            msg = chat_history[i]
+            if isinstance(msg, dict) and msg.get("content"):
+                recent_texts.append(msg["content"].strip())
+
+        if not recent_texts:
+            return question
+
+        # Extract program/degree/requirement keywords from recent context
+        combined = " ".join(recent_texts).lower()
+        program_terms = []
+        if "informatics" in combined:
+            program_terms.append("informatics")
+        if "mathematics" in combined or "math" in combined:
+            program_terms.append("mathematics")
+        if "games engineering" in combined or "games" in combined:
+            program_terms.append("games engineering")
+        if "data science" in combined:
+            program_terms.append("data science")
+        if "bachelor" in combined or "bsc" in combined or "undergraduate" in combined:
+            program_terms.append("bachelor")
+        if "master" in combined or "msc" in combined or "mse" in combined or "graduate" in combined:
+            program_terms.append("master")
+        if any(w in combined for w in ["requirement", "document", "apply", "admission", "list", "need"]):
+            program_terms.extend(["requirements", "documents required", "application"])
+
+        if not program_terms:
+            return question
+
+        # Build augmented query: original question + context keywords (no duplicate words)
+        seen = set(question_lower.split())
+        added = []
+        for term in program_terms:
+            if term not in seen:
+                added.append(term)
+                seen.add(term)
+        if added:
+            augmented = question_stripped + " TUM " + " ".join(added)
+            print(f"[AGENT RETRIEVAL] Follow-up detected; augmented query for retrieval: {augmented[:120]}...")
+            return augmented
+
+        return question
+
+    # Forbidden redirect phrases (only study@tum.de and TUMonline are allowed)
+    _REDIRECT_PHRASES = [
+        (r"I\s+recommend\s+checking\s+the\s+TUM\s+website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"recommend\s+(visiting|checking)\s+(the\s+)?(TUM\s+)?website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"check(ing)?\s+the\s+TUM\s+website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"visit(ing)?\s+(the\s+)?(TUM\s+)?website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"see\s+the\s+TUM\s+website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"on\s+the\s+TUM\s+website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"the\s+TUM\s+website[^.]*\.?", "Contact study@tum.de for details."),
+        (r"(?:visit|check|see)\s+tum\.de[^.]*\.?", "Contact study@tum.de for details."),
+        (r"the\s+TUM\s+site[^.]*\.?", "Contact study@tum.de for details."),
+        (r"the\s+university\s+website[^.]*\.?", "Contact study@tum.de for details."),
+    ]
+
+    def _sanitize_redirects(self, answer: str) -> str:
+        """Replace forbidden redirect phrases (TUM website, tum.de) with allowed redirect (study@tum.de only)."""
+        if not answer or not answer.strip():
+            return answer
+        text = answer
+        for pattern, replacement in self._REDIRECT_PHRASES:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        # Collapse repeated "Contact study@tum.de for details."
+        while "Contact study@tum.de for details. Contact study@tum.de for details." in text:
+            text = text.replace(
+                "Contact study@tum.de for details. Contact study@tum.de for details.",
+                "Contact study@tum.de for details."
+            )
+        return text
+
+    def _strip_sign_off(self, answer: str) -> str:
+        """Remove email-style sign-offs (Best regards, [Your Name], etc.) from the end of the response."""
+        if not answer or not answer.strip():
+            return answer
+        lines = answer.split("\n")
+        sign_off_phrases = (
+            "best regards", "kind regards", "sincerely", "regards", "cheers",
+            "warm regards", "[your name]", "your name"
+        )
+
+        def is_sign_off_line(line: str) -> bool:
+            low = line.strip().lower()
+            if not low:
+                return True  # empty line can be part of sign-off block
+            return any(p in low or low.startswith(p) for p in sign_off_phrases)
+
+        # From the end, find where the sign-off block starts (first line from bottom that is not sign-off)
+        cut = len(lines)
+        for i in range(len(lines) - 1, -1, -1):
+            if not is_sign_off_line(lines[i]):
+                cut = i + 1
+                break
+        return "\n".join(lines[:cut]).strip()
+
     # ------------------ Search ------------------
     def search_kb(self, question: str, profile: Optional[Dict[str, Any]] = None) -> List[Document]:
-        """Search the knowledge base using Supabase hybrid search (semantic + keyword).
+        """Search the information center using Supabase hybrid search (semantic + keyword).
 
         Args:
             question: The user's question
@@ -402,7 +526,7 @@ class Agent:
             )]
         
         print(f"\n{'='*70}")
-        print(f"[AGENT KB SEARCH] Searching knowledge base via Supabase hybrid search...")
+        print(f"[AGENT KB SEARCH] Searching information center via Supabase hybrid search...")
         print(f"  Question: {question}")
         print(f"  Semantic weight: {self.semantic_weight}, Keyword weight: {self.keyword_weight}")
         print(f"{'='*70}")
@@ -659,12 +783,12 @@ class Agent:
         Compile all retrieved context into a structured text for the LLM.
         
         The context has 3 sections:
-        1. USER PROFILE - Personal info from Supabase (name, education, GPA, preferences)
+        1. USER PROFILE - Personal info from Supabase (name, education, GPA, preferences, current_city)
         2. USER DOCUMENTS - Content from uploaded files (CV, transcript, diploma)
-        3. KB DOCUMENTS - Retrieved TUM program information from FAISS
+        3. TUM PROGRAM INFORMATION - Retrieved from the information center (Supabase)
         
         The agent should use USER PROFILE + USER DOCUMENTS to understand the user's background,
-        and KB DOCUMENTS to provide accurate TUM-specific information.
+        and TUM PROGRAM INFORMATION (information center) to provide accurate TUM-specific information.
         """
         print(f"\n{'='*70}")
         print("[AGENT CONTEXT DEBUG] Building context from available sources...")
@@ -759,8 +883,12 @@ class Agent:
             parts.append("=== USER DOCUMENTS ===\n" + doc_summary + "\n\n".join(doc_parts))
         else:
             print("[AGENT CONTEXT] [FAIL] No USER DOCUMENTS available")
-            # Still add a note that no documents have been uploaded
-            parts.append("=== USER DOCUMENTS ===\nNo documents have been uploaded yet by the user.")
+            # Still add a note that no documents have been uploaded; nudge model to suggest uploads when relevant
+            parts.append(
+                "=== USER DOCUMENTS ===\n"
+                "No documents have been uploaded yet by the user. "
+                "If the user asks about their eligibility or required documents, consider suggesting they upload a transcript, diploma, or CV if relevant."
+            )
 
         # ============================================================
         # SECTION 3: TUM PROGRAM INFORMATION (from vector store)
@@ -820,22 +948,23 @@ class Agent:
         print(f"\n{'='*70}")
         print("[AGENT] Generating final answer...")
         print(f"  Question: {question}")
-        print(f"  KB docs: {len(kb_docs)}, User docs: {len(user_docs)}")
+        print(f"  Information center docs: {len(kb_docs)}, User docs: {len(user_docs)}")
         print(f"  Chat history length: {len(chat_history) if chat_history else 0}")
         print(f"{'='*70}\n")
 
         # Build the education consultant system prompt
         system = (
-            "You are a friendly education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions.\n\n"
+            "You are a friendly but professional education consultant at Teduco, specializing in TUM (Technical University of Munich) admissions. "
+            "Be approachable and helpful; keep a professional, precise tone suitable for applicants. Do not use casual slang.\n\n"
 
             "ABSOLUTE RULE - NEVER VIOLATE:\n"
-            "You may ONLY answer based on the information provided in the CONTEXT below. "
+            "You may ONLY answer based on the information provided in the CONTEXT below (TUM program information from the information center, user profile, and user documents). "
             "If the information is NOT in the context, you DO NOT KNOW IT. "
             "NEVER guess, assume, infer, or fill in gaps with general knowledge. "
             "If you don't have specific information, say: 'I don't have that specific information. Please contact study@tum.de for details.'\n\n"
 
             "INFORMATION HIERARCHY:\n"
-            "1. TUM PROGRAM INFORMATION - Your PRIMARY and ONLY source for TUM-related facts\n"
+            "1. TUM PROGRAM INFORMATION - Your PRIMARY and ONLY source for TUM-related facts (from the information center)\n"
             "2. USER PROFILE & DOCUMENTS - Use ONLY when the student asks about themselves\n"
             "3. If neither source has the answer → Admit you don't know and redirect to study@tum.de\n\n"
 
@@ -845,14 +974,42 @@ class Agent:
             "- NEVER assume requirements are 'typical' or 'usually'\n"
             "- NEVER say 'generally', 'typically', 'usually', 'most programs' - only state what's in the context\n"
             "- NEVER fill gaps with educated guesses\n"
-            "- NEVER mention 'knowledge base', 'database', 'context', or 'documents' in your responses\n\n"
+            "- NEVER mention 'knowledge base', 'database', 'context', or 'documents' in your responses - speak naturally\n\n"
+
+            "ALLOWED REDIRECTS ONLY - STRICT:\n"
+            "You may ONLY direct users to (1) TUMonline (for application/registration/enrollment) and (2) study@tum.de. "
+            "NEVER suggest checking or visiting 'the TUM website', 'tum.de', 'the TUM site', 'the university website', "
+            "'the official TUM pages', or any similar phrasing. "
+            "Do NOT say things like: 'check the TUM website', 'visit tum.de for details', 'see the TUM website', "
+            "'I recommend checking the TUM website', 'find more on the TUM site', 'for more information see the TUM website'. "
+            "When you don't have information: only say to contact study@tum.de (or to use TUMonline for application steps).\n\n"
+
+            "WHEN TO ASK FOLLOW-UP QUESTIONS:\n"
+            "- If the question is ambiguous or you need one or two specific details to give a precise answer (e.g. which program or intake they mean, whether they are an international student, or their current GPA), ask one or two short, specific follow-up questions in the same response. Do not guess.\n"
+            "- Once the user provides the details in a later message, use the conversation history and give a complete, straight-to-the-point answer.\n"
+            "- Keep follow-up questions brief and concrete (e.g. 'Which program are you applying to: BSc Informatics or MSc?' or 'Are you an international student?').\n\n"
+
+            "WHEN INFORMATION OR DOCUMENTS ARE MISSING:\n"
+            "- If the user asks about their eligibility, required documents, or application readiness and relevant profile fields (e.g. applicant type, GPA, university/high school) or uploaded documents (e.g. transcript, diploma, language certificate, CV) are missing: (1) Briefly state what is missing, (2) Suggest they upload the document (via Documents) or complete their profile (e.g. in Settings), (3) Answer as well as you can with the information you have, or say you can give a more precise answer once they upload or complete the profile.\n"
+            "- Only suggest uploading or completing what is relevant to the question.\n\n"
+
+            "WHEN YOU ARE UNCERTAIN:\n"
+            "- If you are uncertain or the context is ambiguous or incomplete, do not guess. Redirect the user to contact study@tum.de for accurate information.\n\n"
+
+            "WHEN YOU HAVE THE INFORMATION — BE CONFIDENT (CRITICAL):\n"
+            "- When the CONTEXT contains the answer (e.g. application deadlines, requirements, process, dates), state it directly and confidently. Do NOT preface with 'you can start by checking TUMonline', 'I recommend contacting study@tum.de', or deflect when the detail is already in the context.\n"
+            "- If you retrieved application dates or requirements from the context for the program the user asked about, state them clearly (e.g. 'For Informatics MSc, the application period for the winter semester is 1 February to 31 May and for the summer semester 1 October to 30 November.'). Do NOT then say 'I don't have specific information' for that same program.\n"
+            "- Only suggest contacting study@tum.de or TUMonline when the specific information is genuinely NOT in the context. When you have the information, give it as a fact — do not hedge or redirect.\n"
+            "- Never mix: do not give dates for one program and then say you lack information for the program they asked about. Either state what the context says for their program or say you don't have that program and redirect.\n\n"
 
             "YOUR COMMUNICATION STYLE:\n"
             "- BE CONCISE: 3-5 sentences for simple questions, bullet points for lists\n"
-            "- BE DIRECT: Answer first, add context if needed\n"
+            "- BE DIRECT: Answer first, add context if needed. When the context has the answer, state it as a fact — do not hedge or suggest they contact someone for that same information\n"
             "- USE THEIR NAME: Address them by first name naturally\n"
             "- BE HONEST: If you don't have info, say so immediately - don't hedge or guess\n"
-            "- SPEAK NATURALLY: Never reference where your information comes from - just state facts confidently\n\n"
+            "- BE CONFIDENT: When you have retrieved the answer from the context, state it clearly. Do not say 'I recommend' or 'I don't have specific information' when you have just stated or could state that information from the context\n"
+            "- SPEAK NATURALLY: Never reference where your information comes from - just state facts confidently\n"
+            "- After you have enough information (from context or the user's answers to your follow-up questions), give a complete answer that is straight to the point: no unnecessary padding; use bullets for lists\n\n"
 
             "WHEN TO USE USER DATA:\n"
             "- Only reference USER PROFILE/DOCUMENTS when the student asks about their own situation\n"
@@ -860,33 +1017,37 @@ class Agent:
             "- For checking what documents they've uploaded\n"
             "- NEVER use user data to fill in gaps about TUM programs\n\n"
 
+            "DEGREE AND INTERNATIONAL STUDENT RULES:\n"
+            "- High school students → Bachelor's only; university students/graduates → Master's programs\n"
+            "- If from the USER PROFILE or RECENT CONVERSATION the student appears to be an international applicant (e.g. they said they are from abroad, non-German qualification, or current_city/country suggests it), emphasize requirements from the context that apply to international applicants (e.g. VPD, language certificates, country-specific documents) when relevant. Only state what appears in the context.\n"
+            "- If they appear to be a domestic/German applicant, emphasize requirements that apply to domestic qualifications when relevant. Only state what appears in the context.\n"
+            "- If unclear, you may ask a short follow-up (e.g. 'Are you applying with a qualification from outside Germany?') to tailor advice.\n\n"
+
             "CRITICAL RULES:\n\n"
 
             "1. PROGRAMS - Only discuss programs explicitly in the context:\n"
             "   - If a program isn't in the context, say: 'I don't have information on that program. Contact study@tum.de.'\n\n"
 
-            "2. DEGREE ELIGIBILITY:\n"
-            "   - High school students → Bachelor's only\n"
-            "   - University students/graduates → Master's programs\n\n"
-
-            "3. DOCUMENT CHECKS:\n"
+            "2. DOCUMENT CHECKS:\n"
             "   - Only list requirements that appear in the context\n"
             "   - Use ✅/❌ to show what they have vs. need\n\n"
 
-            "4. WHEN YOU DON'T KNOW:\n"
+            "3. WHEN YOU DON'T KNOW (TUM facts not in context):\n"
             "   - Say directly: 'I don't have that specific information.'\n"
             "   - Always redirect: 'Please contact study@tum.de for details.'\n"
+            "   - When you DO have the information in the context (e.g. dates, requirements), state it confidently; only redirect when the information is truly not in the context.\n"
             "   - Don't apologize excessively, just be direct and helpful\n\n"
 
             "RESPONSE FORMAT:\n"
             "- Simple questions → 2-4 sentences\n"
             "- Lists → Bullet points only\n"
             "- Missing info → State what you don't know + redirect to study@tum.de\n"
+            "- Do NOT use sign-offs. Never end with 'Best regards', 'Sincerely', 'Kind regards', '[Your Name]', or any similar closing. End with the answer only.\n"
         )
 
         context = self.compile_context_text(profile, kb_docs, user_docs)
 
-        # No KB docs - check if user is asking for program suggestions
+        # No information center docs - check if user is asking for program suggestions
         # If so, fetch and list available programs (filtered by eligibility)
         if not kb_docs and not user_docs:
             question_lower = question.lower()
@@ -898,7 +1059,7 @@ class Agent:
             ])
             
             if suggest_trigger:
-                print(f"[AGENT] No KB results but user asking for suggestions - fetching eligible programs")
+                print(f"[AGENT] No information center results but user asking for suggestions - fetching eligible programs")
                 programs = list_all_degree_programs()
                 
                 if programs:
@@ -934,7 +1095,7 @@ class Agent:
                     if eligible_level == "bachelor" and user_applicant_type == "high-school":
                         content += "\n\nNote: As a high school student, you are eligible for Bachelor's programs. Master's programs require a completed Bachelor's degree."
                     
-                    # Create a synthetic KB doc with program list
+                    # Create a synthetic information-center doc with program list
                     kb_docs = [Document(
                         page_content=content,
                         metadata={"source": "database_query", "type": "program_list", "count": len(program_set), "degree_level": eligible_level}
@@ -949,30 +1110,34 @@ class Agent:
                 Agent._no_context_idx = (Agent._no_context_idx + 1) % len(Agent._NO_CONTEXT_RESPONSES)
                 first_name = self._get_user_first_name(profile)
                 answer = Agent._NO_CONTEXT_RESPONSES[Agent._no_context_idx].format(name=first_name)
-                print(f"[AGENT] No context available (no profile, no KB, no user docs), using fallback")
+                print(f"[AGENT] No context available (no profile, no information center, no user docs), using fallback")
                 return answer
 
         human_prompt = "CONTEXT:\n" + (context or "No context available") + "\n\n"
         if chat_history:
+            # Use last 24 messages (12 turns) so follow-up answers have full conversation context
             human_prompt += "RECENT CONVERSATION:\n" + "\n".join(
-                [f"{m['role'].upper()}: {m['content']}" for m in (chat_history or [])[-6:]]
+                [f"{m['role'].upper()}: {m['content']}" for m in (chat_history or [])[-24:]]
             ) + "\n\n"
         human_prompt += (
             "STUDENT'S QUESTION:\n" + question + "\n\n"
             "CRITICAL REMINDERS:\n"
             "- ONLY use information from the CONTEXT above - NEVER make up facts\n"
+            "- When the CONTEXT contains the answer (e.g. application dates, deadlines, requirements), state it clearly and confidently. Do NOT say 'I recommend contacting study@tum.de' or 'you can start by checking TUMonline' for that same information — give the answer from the context.\n"
             "- If the answer is NOT in the context, say: 'I don't have that information. Contact study@tum.de.'\n"
             "- NEVER guess, assume, or use general knowledge about TUM\n"
-            "- NEVER mention 'knowledge base', 'context', 'database', or 'documents' - speak naturally\n"
+            "- NEVER mention 'information center', 'context', 'database', or 'documents' in your reply - speak naturally\n"
+            "- REDIRECTS: Only allow study@tum.de or TUMonline. NEVER suggest 'the TUM website', 'tum.de', or 'check the TUM website'.\n"
+            "- Do NOT use sign-offs (Best regards, Sincerely, [Your Name], etc.). End with the answer only.\n"
             "- Use their first name naturally\n"
-            "- Be concise and direct"
+            "- Be concise, direct, and confident when you have the information"
         )
 
         try:
             resp = self.llm.invoke([
                 SystemMessage(content=system),
                 HumanMessage(content=human_prompt)
-            ], temperature=0.1)
+            ], temperature=0)
 
             if hasattr(resp, 'content'):
                 content = resp.content
@@ -983,6 +1148,8 @@ class Agent:
                 answer = str(resp).strip()
 
             print(f"[AGENT] Answer generated ({len(answer)} chars)")
+            answer = self._sanitize_redirects(answer)
+            answer = self._strip_sign_off(answer)
             return answer
         except Exception as e:
             print(f"[AGENT] Error generating answer: {e}")
@@ -1074,31 +1241,34 @@ class Agent:
         actions = self.plan_actions(question, profile_summary)
         print(f"[AGENT RUN] Planned actions: {actions}")
 
-        # Step 3: Always search KB for authenticated education queries
+        # Use chat history to build a retrieval-effective query for follow-ups (e.g. "can you give me a list?")
+        retrieval_question = self._query_for_retrieval(question, chat_history)
+
+        # Step 3: Always search information center for authenticated education queries
         kb_docs = []
         user_docs = []
 
-        # Always search KB (the core value of this chatbot)
+        # Always search information center (the core value of this chatbot)
         if "search_kb" in actions or user_id:
-            print(f"[AGENT RUN] Searching knowledge base...")
-            kb_docs = self.search_kb(question, profile=profile)
-            print(f"[AGENT RUN] KB search returned {len(kb_docs)} documents\n")
+            print(f"[AGENT RUN] Searching information center...")
+            kb_docs = self.search_kb(retrieval_question, profile=profile)
+            print(f"[AGENT RUN] Information center search returned {len(kb_docs)} documents\n")
 
         # Always search user docs for authenticated users (core value of personalization)
         if user_id:
             print(f"[AGENT RUN] Searching user documents in Supabase...")
-            user_docs = self.search_user_docs_supabase(question, user_id)
+            user_docs = self.search_user_docs_supabase(retrieval_question, user_id)
             if not user_docs:
                 # Fallback: fetch and search in memory
                 print(f"[AGENT RUN] No Supabase user docs, trying in-memory fallback...")
                 raw_docs = self.fetch_user_documents(user_id)
                 if raw_docs:
-                    user_docs = self.search_user_docs(question, raw_docs)
+                    user_docs = self.search_user_docs(retrieval_question, raw_docs)
             print(f"[AGENT RUN] User doc search returned {len(user_docs)} documents\n")
 
         print(f"[AGENT RUN] Generating final answer with:")
         print(f"  - Profile: {'Yes' if profile.get('user') else 'No'}")
-        print(f"  - KB docs: {len(kb_docs)}")
+        print(f"  - Information center docs: {len(kb_docs)}")
         print(f"  - User docs: {len(user_docs)}")
         print(f"  - Chat history: {len(chat_history) if chat_history else 0} messages\n")
 

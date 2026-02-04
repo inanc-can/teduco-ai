@@ -27,6 +27,7 @@ BACKEND_DIR = RAG_DIR.parent
 sys.path.insert(0, str(BACKEND_DIR))
 sys.path.insert(0, str(RAG_DIR))
 
+from rag.chatbot.config import GROQ_MODEL
 from rag.chatbot.loader import DocumentLoader
 from rag.chatbot.retriever import RetrievalPipeline
 from rag.chatbot.db_ops import retrieve_chunks
@@ -50,7 +51,7 @@ class RAGChatbotPipeline:
         self,
         data_dir: str = "backend/rag_data",
         vector_store_dir: Optional[str] = None,
-        model_name: str = "llama-3.1-8b-instant",
+        model_name: Optional[str] = None,
         program_slugs: Optional[List[str]] = None,
         use_cache: bool = True,
         embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -81,7 +82,7 @@ class RAGChatbotPipeline:
         """
         self.data_dir = data_dir
         self.vector_store_dir = vector_store_dir or f"{data_dir}/vector_store"
-        self.model_name = model_name
+        self.model_name = model_name if model_name is not None else GROQ_MODEL
         self.program_slugs = program_slugs
         self.use_cache = use_cache
         self.similarity_threshold = similarity_threshold  # Minimum similarity to use document
@@ -140,20 +141,23 @@ class RAGChatbotPipeline:
         
         # Create prompt template with chat history support
         self.prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an education consultant at Teduco, specializing in TUM admissions.
+            ("system", """You are a friendly but professional education consultant at Teduco, specializing in TUM admissions. Be approachable; keep a professional, precise tone.
 
-ABSOLUTE RULE: Only answer based on the CONTEXT below. If information is NOT in the context, say: "I don't have that information. Contact study@tum.de."
+ABSOLUTE RULE: Only answer based on the CONTEXT below (TUM program information from the information center). If information is NOT in the context, say: "I don't have that information. Contact study@tum.de."
 
-NEVER:
-- Guess, assume, or infer facts not in the context
-- Use words like "typically", "usually", "generally"
-- Make up deadlines, requirements, or any facts
-- Mention "knowledge base", "context", "database", or "documents" - speak naturally
+WHEN YOU HAVE THE INFORMATION: State it directly and confidently. Do NOT say "I recommend contacting study@tum.de" or "you can start by checking TUMonline" when the answer (e.g. application dates, requirements) is in the context — give the answer. Only redirect when the information is genuinely not in the context.
 
-ALWAYS:
-- State only facts from the context
-- Be concise (3-5 sentences, bullet points for lists)
-- Admit when you don't know and redirect to study@tum.de
+FOLLOW-UP QUESTIONS: If the question is ambiguous or you need one or two specific details (e.g. which program, intake, or whether they are international), ask one or two short follow-up questions. Once they answer, give a complete, straight-to-the-point answer using the conversation history.
+
+MISSING DOCUMENTS/PROFILE: If they ask about their eligibility or required documents and relevant profile or document info is missing, briefly state what is missing, suggest they upload documents or complete their profile, then answer as well as you can.
+
+WHEN UNCERTAIN: Do not guess. Redirect to study@tum.de only (never suggest the TUM website or tum.de).
+
+REDIRECTS: Only direct users to study@tum.de or TUMonline. NEVER suggest "the TUM website", "tum.de", "check the TUM website", or similar.
+
+NEVER: Guess, assume, or infer; use "typically"/"usually"; make up facts; mention "information center", "context", "database", or "documents" in your reply.
+
+ALWAYS: State only facts from the context; be concise (3-5 sentences, bullets for lists); after you have enough info, give a complete, straight-to-the-point answer. Do NOT use sign-offs (Best regards, Sincerely, [Your Name], etc.); end with the answer only.
 
 === PROGRAM INFORMATION ===
 {context}"""),
@@ -344,10 +348,12 @@ def initialize_rag_pipeline(
     program_slugs: Optional[List[str]] = None,
     similarity_threshold: float = 0.30,
     semantic_weight: float = 0.6,
-    keyword_weight: float = 0.4
+    keyword_weight: float = 0.4,
+    model_name: Optional[str] = None
 ) -> RAGChatbotPipeline:
     """
     Initialize the RAG pipeline (convenience function).
+    Uses GROQ_MODEL from rag.chatbot.config unless model_name is passed.
 
     Args:
         data_dir: Directory for crawled data
@@ -357,6 +363,7 @@ def initialize_rag_pipeline(
         similarity_threshold: Minimum hybrid score (0-1) to use a document. Default: 0.35
         semantic_weight: Weight for semantic similarity in hybrid search (0-1, default: 0.6)
         keyword_weight: Weight for keyword matching in hybrid search (0-1, default: 0.4)
+        model_name: Groq model name (default: from rag.chatbot.config.GROQ_MODEL)
         
     Returns:
         Initialized RAGChatbotPipeline instance
@@ -368,6 +375,7 @@ def initialize_rag_pipeline(
         program_slugs=program_slugs,
         similarity_threshold=similarity_threshold,
         semantic_weight=semantic_weight,
-        keyword_weight=keyword_weight
+        keyword_weight=keyword_weight,
+        model_name=model_name
     )
 
