@@ -1089,12 +1089,19 @@ async def analyze_letter(
             }
             
             # Get current version and increment it
-            current_letter = supabase.table("application_letters")\
+            current_letter_query = supabase.table("application_letters")\
                 .select("analysis_version")\
-                .eq("user_id", user_id)\
-                .eq("content", content)\
-                .limit(1)\
-                .execute()
+                .eq("user_id", user_id)
+            
+            # Prefer scoping by a specific letter_id when available to avoid
+            # affecting multiple letters that may share the same content.
+            letter_id = getattr(request, "letter_id", None)
+            if letter_id is not None:
+                current_letter_query = current_letter_query.eq("id", letter_id)
+            else:
+                current_letter_query = current_letter_query.eq("content", content)
+            
+            current_letter = current_letter_query.limit(1).execute()
             
             if current_letter.data:
                 current_version = current_letter.data[0].get("analysis_version", 0)
@@ -1102,12 +1109,19 @@ async def analyze_letter(
             
             # Try to update existing letter with this content
             # SECURITY: Verify user_id to prevent cache pollution attacks
-            supabase.table("application_letters")\
+            update_query = supabase.table("application_letters")\
                 .update(cache_data)\
-                .eq("user_id", user_id)\
-                .eq("content", content)\
-                .eq("content_hash", content_hash)\
-                .execute()
+                .eq("user_id", user_id)
+            
+            # Use letter_id when available to avoid cache pollution across
+            # different letters that have the same content.
+            if letter_id is not None:
+                update_query = update_query.eq("id", letter_id)
+            else:
+                update_query = update_query.eq("content", content)
+            
+            update_query = update_query.eq("content_hash", content_hash)
+            update_query.execute()
             
             print(f"[Analysis] ✓ Cached analysis for hash {content_hash[:8]}...")
         except Exception as e:
