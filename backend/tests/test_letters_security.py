@@ -3,7 +3,7 @@ Security tests for application letters API endpoints
 Tests authorization, input validation, and cache isolation
 """
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from uuid import uuid4
 from fastapi import HTTPException
 
