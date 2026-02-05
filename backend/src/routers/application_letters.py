@@ -63,7 +63,7 @@ class ApplicationLetterResponse(BaseModel):
     updated_at: datetime
     metadata: dict
     rejected_suggestion_ids: List[str] = []
-    applied_suggestion_metadata: List[dict] = []
+    applied_suggestion_metadata: List[AppliedSuggestionMetadata] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
