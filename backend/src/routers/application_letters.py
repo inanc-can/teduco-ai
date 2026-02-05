@@ -259,10 +259,14 @@ async def auto_save_letter(
         }
         
         # Include suggestion states if provided
+        # IMPORTANT: Serialize Pydantic models to dicts for JSON storage
         if auto_save.rejected_suggestion_ids is not None:
             update_data["rejected_suggestion_ids"] = auto_save.rejected_suggestion_ids
         if auto_save.applied_suggestion_metadata is not None:
-            update_data["applied_suggestion_metadata"] = auto_save.applied_suggestion_metadata
+            # Convert Pydantic models to dicts for JSON serialization
+            update_data["applied_suggestion_metadata"] = [
+                item.model_dump() for item in auto_save.applied_suggestion_metadata
+            ]
         
         # Clear cached analysis when content changes (invalidate cache)
         response = (
