@@ -677,7 +677,6 @@ def _parse_llm_json(text: str, is_list=True) -> Any:
         return result
     except Exception as e:
         print(f"[Parser] JSON parse after cleanup failed: {e}")
-        pass
         
     # Attempt extraction
     json_match = re.search(r'```(?:json)?\s*(\{|\[)(.*?)(\}|\])\s*```', cleaned, re.DOTALL)
@@ -688,7 +687,6 @@ def _parse_llm_json(text: str, is_list=True) -> Any:
             return result
         except Exception as e:
             print(f"[Parser] Code block extraction failed: {e}")
-            pass
             
     # Attempt fallback list/dict extraction
     if is_list:
@@ -703,7 +701,6 @@ def _parse_llm_json(text: str, is_list=True) -> Any:
             return result
         except Exception as e:
             print(f"[Parser] Regex extraction failed: {e}")
-            pass
     
     print(f"[Parser] All parsing attempts failed, returning empty {[] if is_list else {}}")
     return [] if is_list else {}
