@@ -41,7 +41,11 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   try {
     profile = await serverApi.getProfile()
   } catch (error) {
-    console.error('Failed to fetch profile:', error)
+    // Silently fail for 404 (user not in profile table yet, might be new user)
+    // Only log non-404 errors
+    if (error instanceof Error && !error.message.includes('Not Found')) {
+      console.error('Failed to fetch profile:', error)
+    }
     // Don't redirect - user might be in onboarding flow
     // Just use email as fallback
     profile = null

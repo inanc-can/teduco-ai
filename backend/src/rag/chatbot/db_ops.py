@@ -281,11 +281,16 @@ def retrieve_chunks(
     keyword_weight: float = 0.3,
     filter_university: Optional[str] = None,
     filter_degree: Optional[str] = None,
-    filter_degree_level: Optional[str] = None
+    filter_degree_level: Optional[str] = None,
+    similarity_threshold: float = 0.40,
 ):
     """
     Retrieve top-k related chunks using hybrid search (semantic + keyword).
     Falls back to semantic-only search if hybrid search function is not available.
+
+    NOTE: `similarity_threshold` is accepted for compatibility with callers
+    (pipeline may pass it). This function will use it as an additional
+    post-filter on the hybrid_score when present.
 
     Args:
         query: Textual query string for keyword search.
@@ -296,6 +301,7 @@ def retrieve_chunks(
         filter_university: Optional university filter.
         filter_degree: Optional degree filter.
         filter_degree_level: Optional degree level filter.
+        similarity_threshold: Minimum hybrid_score (0-1) to keep a document.
 
     Returns:
         List[Dict[str, Any]]: Each item contains 'content', 'metadata', 'similarity_score', 
@@ -362,6 +368,16 @@ def retrieve_chunks(
                 "keyword_rank": r.get("keyword_rank", 0.0),
                 "hybrid_score": r.get("hybrid_score", 0.0)
             })
+        
+        # If caller provided a similarity_threshold, apply as an extra filter to avoid
+        # returning weakly-related documents (defensive - pipeline also filters).
+        if similarity_threshold is not None:
+            pre_filter_count = len(related_chunks)
+            related_chunks = [c for c in related_chunks if (c.get('hybrid_score') or 0) >= similarity_threshold]
+            try:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] Filtered {pre_filter_count - len(related_chunks)} docs below similarity_threshold={similarity_threshold}")
+            except Exception as log_exc:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] Unable to log similarity_threshold filtering details: {log_exc}")
         
         # Debug: print the generated related chunks summary
         try:

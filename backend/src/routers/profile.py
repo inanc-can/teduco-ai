@@ -96,22 +96,41 @@ def _embed_user_profile_background(user_id: str):
 
 def _build_profile_response(user_id: str) -> UserProfileResponse:
     """Build profile response from database data."""
-    raw_profile = get_user_profile(user_id)
-    
-    # Flatten the nested structure into a single dict
-    result = {}
-    
-    # Add basic user info
-    if raw_profile.get("user"):
-        user_data = raw_profile["user"]
-        result.update({
-            "first_name": user_data.get("first_name", ""),
-            "last_name": user_data.get("last_name", ""),
-            "phone": user_data.get("phone"),
-            "applicant_type": user_data.get("applicant_type"),
-            "current_city": user_data.get("current_city"),
-            "onboarding_completed": user_data.get("onboarding_completed", False),
-        })
+    try:
+        raw_profile = get_user_profile(user_id)
+        
+        # Handle case where user doesn't exist yet (new users during onboarding)
+        if not raw_profile or not raw_profile.get("user"):
+            return UserProfileResponse(
+                first_name="",
+                last_name="",
+                onboarding_completed=False
+            )
+        
+        # Flatten the nested structure into a single dict
+        result = {}
+        
+        # Add basic user info
+        if raw_profile.get("user"):
+            user_data = raw_profile["user"]
+            result.update({
+                "first_name": user_data.get("first_name", ""),
+                "last_name": user_data.get("last_name", ""),
+                "phone": user_data.get("phone"),
+                "applicant_type": user_data.get("applicant_type"),
+                "current_city": user_data.get("current_city"),
+                "onboarding_completed": user_data.get("onboarding_completed", False),
+            })
+    except Exception as e:
+        # Log the error and return minimal profile for new users
+        import traceback
+        print(f"[PROFILE] Error building profile response: {e}")
+        traceback.print_exc()
+        return UserProfileResponse(
+            first_name="",
+            last_name="",
+            onboarding_completed=False
+        )
     
     # Add education info
     if raw_profile.get("education"):

@@ -27,4 +27,4 @@ COPY src/ ./src
 COPY rag_data/ ./rag_data
 
 # Stay in /app directory for proper package imports
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
