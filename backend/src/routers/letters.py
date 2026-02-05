@@ -703,7 +703,6 @@ def _parse_llm_json(text: str, is_list=True) -> Any:
             return result
         except Exception as e:
             print(f"[Parser] Regex extraction failed: {e}")
-            pass
     
     print(f"[Parser] All parsing attempts failed, returning empty {[] if is_list else {}}")
     return [] if is_list else {}
