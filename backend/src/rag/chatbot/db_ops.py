@@ -376,8 +376,8 @@ def retrieve_chunks(
             related_chunks = [c for c in related_chunks if (c.get('hybrid_score') or 0) >= similarity_threshold]
             try:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] Filtered {pre_filter_count - len(related_chunks)} docs below similarity_threshold={similarity_threshold}")
-            except Exception:
-                pass
+            except Exception as log_exc:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] Unable to log similarity_threshold filtering details: {log_exc}")
         
         # Debug: print the generated related chunks summary
         try:
