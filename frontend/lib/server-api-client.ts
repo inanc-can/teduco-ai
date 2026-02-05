@@ -95,8 +95,15 @@ async function serverRequest<T>(
     }
     
     // Log server-side errors for debugging
-    console.error(`[ServerAPI] ${response.status} ${endpoint}:`, errorMessage)
-    
+    if (response.status === 404 && endpoint === '/profile') {
+      console.warn(
+        `[ServerAPI] 404 ${endpoint}: Backend may not be running or route not registered. ` +
+        `Ensure the API is running at ${config.api.baseUrl} (see NEXT_PUBLIC_BACKEND_URL / NEXT_INTERNAL_BACKEND_URL).`
+      )
+    } else {
+      console.error(`[ServerAPI] ${response.status} ${endpoint}:`, errorMessage)
+    }
+
     throw new ServerApiError(errorMessage, response.status, errorCode)
   }
 

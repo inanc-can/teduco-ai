@@ -1,13 +1,17 @@
 import os
+import httpx
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from langchain_core.documents import Document  # type: ignore
 
 from supabase import create_client
+from supabase.lib.client_options import SyncClientOptions
 from core.config import get_settings
 
 settings = get_settings()
-supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+_httpx_client = httpx.Client(http2=False)
+_options = SyncClientOptions(httpx_client=_httpx_client)
+supabase = create_client(settings.supabase_url, settings.supabase_service_key, options=_options)
 
 # ---------- DEGREE PROGRAM LISTING ----------
 def list_all_degree_programs(table: str = "rag_uni_degree_documents") -> List[Dict[str, str]]:
@@ -118,6 +122,155 @@ def bulk_insert(docs: List[Document], embeddings: List[List[float]], batch_size:
 
     print(f"[Inserter] bulk_insert completed: {total_inserted} rows")
     return total_inserted
+
+# ---------- USER DOCUMENT EMBEDDINGS ----------
+def upsert_user_document_chunks(
+    user_id: str,
+    docs: List[Document],
+    embeddings: List[List[float]],
+    doc_type: str = "document"
+):
+    """Insert embedded chunks from a user's document into rag_user_documents.
+
+    Deletes existing chunks for the same user+doc_type before inserting,
+    so re-uploads replace old embeddings.
+    """
+    if len(docs) != len(embeddings):
+        raise ValueError("docs and embeddings must have same length")
+
+    # Delete old chunks for this user+doc_type
+    try:
+        supabase.table("rag_user_documents") \
+            .delete() \
+            .eq("user_id", user_id) \
+            .eq("doc_type", doc_type) \
+            .execute()
+    except Exception as e:
+        print(f"[DB] Warning: could not delete old user doc chunks: {e}")
+
+    rows = []
+    for doc, emb in zip(docs, embeddings):
+        # Strip null bytes that PostgreSQL cannot store in text columns
+        content = doc.page_content.replace("\x00", "") if doc.page_content else ""
+        if not content.strip():
+            continue
+        rows.append({
+            "user_id": user_id,
+            "content": content,
+            "embedding": emb,
+            "metadata": doc.metadata,
+            "doc_type": doc_type,
+        })
+
+    if not rows:
+        return 0
+
+    # Insert in batches
+    batch_size = 100
+    total = 0
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        res = supabase.table("rag_user_documents").insert(batch).execute()
+        err = getattr(res, "error", None)
+        if err:
+            print(f"[DB] Error inserting user doc chunks: {err}")
+            raise RuntimeError(err)
+        total += len(batch)
+
+    print(f"[DB] Inserted {total} user document chunks for user {user_id} (type={doc_type})")
+    return total
+
+
+def upsert_user_profile_chunks(
+    user_id: str,
+    docs: List[Document],
+    embeddings: List[List[float]]
+):
+    """Insert embedded profile summary chunks into rag_user_profile_chunks.
+
+    Replaces all existing profile chunks for this user.
+    """
+    if len(docs) != len(embeddings):
+        raise ValueError("docs and embeddings must have same length")
+
+    # Delete old profile chunks
+    try:
+        supabase.table("rag_user_profile_chunks") \
+            .delete() \
+            .eq("user_id", user_id) \
+            .execute()
+    except Exception as e:
+        print(f"[DB] Warning: could not delete old profile chunks: {e}")
+
+    rows = []
+    for doc, emb in zip(docs, embeddings):
+        content = doc.page_content.replace("\x00", "") if doc.page_content else ""
+        if not content.strip():
+            continue
+        rows.append({
+            "user_id": user_id,
+            "content": content,
+            "embedding": emb,
+            "metadata": doc.metadata,
+        })
+
+    if not rows:
+        return 0
+
+    res = supabase.table("rag_user_profile_chunks").insert(rows).execute()
+    err = getattr(res, "error", None)
+    if err:
+        print(f"[DB] Error inserting profile chunks: {err}")
+        raise RuntimeError(err)
+
+    print(f"[DB] Inserted {len(rows)} profile chunks for user {user_id}")
+    return len(rows)
+
+
+def retrieve_user_document_chunks(
+    user_id: str,
+    query: str,
+    query_embedding: List[float],
+    top_k: int = 5,
+    semantic_weight: float = 0.6,
+    keyword_weight: float = 0.4
+) -> List[Dict]:
+    """Retrieve user document chunks using hybrid search scoped to user_id."""
+    try:
+        response = supabase.rpc(
+            "hybrid_search_user_documents",
+            {
+                "p_user_id": user_id,
+                "query_embedding": query_embedding,
+                "query_text": query,
+                "match_count": top_k,
+                "semantic_weight": semantic_weight,
+                "keyword_weight": keyword_weight,
+            }
+        ).execute()
+
+        data = getattr(response, "data", None)
+        if not data:
+            return []
+
+        results = []
+        for r in data:
+            if not isinstance(r, dict):
+                continue
+            results.append({
+                "content": r.get("content"),
+                "metadata": r.get("metadata"),
+                "doc_type": r.get("doc_type"),
+                "similarity_score": r.get("similarity", 0.0),
+                "keyword_rank": r.get("keyword_rank", 0.0),
+                "hybrid_score": r.get("hybrid_score", 0.0),
+            })
+        return results
+
+    except Exception as e:
+        print(f"[DB] Error in user document hybrid search: {e}")
+        return []
+
 
 # ----------HYBRID RETRIEVAL ----------
 def retrieve_chunks(
@@ -242,8 +395,8 @@ def retrieve_chunks(
         # Check if it's a "function not found" error
         error_msg = str(e)
         if "PGRST202" in error_msg or "hybrid_search_uni_degree_documents" in error_msg:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] ⚠ Hybrid search function not found, falling back to semantic-only search")
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] ⚠ Please apply migration: supabase/migrations/20260115000001_create_hybrid_search_for_uni_docs.sql")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] [WARN] Hybrid search function not found, falling back to semantic-only search")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [HYBRID SEARCH] [WARN] Please apply migration: supabase/migrations/20260115000001_create_hybrid_search_for_uni_docs.sql")
             
             # Fallback to semantic-only search using the old function
             try:

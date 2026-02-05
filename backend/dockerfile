@@ -1,13 +1,30 @@
-FROM python:3.11-slim
+# Multi-stage build: base stage with heavy ML dependencies
+FROM python:3.11-slim AS base
 
-# install deps first
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-#RUN pip install -r requirements.txt
 
-# copy only application source code
+# Install CPU-only PyTorch FIRST to prevent sentence-transformers from pulling CUDA version
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Install heavy ML dependencies
+COPY requirements-base.txt .
+RUN pip install --no-cache-dir -r requirements-base.txt
+
+# Clean up pip cache
+RUN rm -rf /root/.cache/pip
+
+# Final stage: application
+FROM base AS app
+
+WORKDIR /app
+
+# Install lightweight application dependencies only
+COPY requirements-app.txt .
+RUN pip install --no-cache-dir -r requirements-app.txt
+
+# Copy application source code
 COPY src/ ./src
 COPY rag_data/ ./rag_data
+
 # Stay in /app directory for proper package imports
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

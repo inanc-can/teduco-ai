@@ -101,7 +101,8 @@ class ApiClient {
    */
   private async request<T>(
     endpoint: string,
-    options: RequestOptions = {}
+    options: RequestOptions = {},
+    retryOnAuth = true
   ): Promise<T> {
     const { timeout = this.timeout, skipAuth = false, ...fetchOptions } = options
     const method = fetchOptions.method || 'GET'
@@ -173,23 +174,24 @@ class ApiClient {
         const error = new ApiError(errorMessage, response.status, errorCode)
         logger.logApiError(method, endpoint, error, duration)
         
-        // Handle authentication errors
-        if (response.status === 401) {
-          // Token is invalid or expired - try to refresh session
+        // Handle authentication errors - try to refresh and retry
+        if (response.status === 401 && retryOnAuth) {
+          logger.info('[API] Got 401, attempting token refresh and retry...')
           if (typeof window !== 'undefined') {
             try {
               const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
               if (!refreshError && refreshedSession) {
-                // Session refreshed successfully - retry the request won't happen automatically
-                // User will need to retry their action
-                logger.info('Session refreshed after 401 error')
+                // Session refreshed successfully - retry the request
+                logger.info('[API] Session refreshed, retrying request...')
+                return this.request<T>(endpoint, options, false) // Don't retry again
               } else {
                 // Cannot refresh - redirect to login
-                window.location.href = '/login'
+                logger.warn('[API] Session refresh failed, redirecting to login')
+                window.location.href = '/login?error=session_expired'
               }
             } catch {
               // Refresh failed - redirect to login  
-              window.location.href = '/login'
+              window.location.href = '/login?error=session_expired'
             }
           }
         }
@@ -349,6 +351,9 @@ class ApiClient {
   }
 
   async sendMessage(data: { chatId: string; message: string; files?: File[] }) {
+    // Use a longer timeout for message sending since AI responses can take time
+    const messageTimeout = 120000 // 2 minutes
+    
     if (data.files && data.files.length > 0) {
       const formData = new FormData()
       formData.append('content', data.message)
@@ -356,13 +361,14 @@ class ApiClient {
       
       return this.postFormData<Message>(
         `/chats/${data.chatId}/messages`,
-        formData
+        formData,
+        { timeout: messageTimeout }
       )
     }
 
     return this.post<Message>(`/chats/${data.chatId}/messages`, {
       content: data.message,
-    })
+    }, { timeout: messageTimeout })
   }
 
   // ======================
