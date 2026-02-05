@@ -35,11 +35,18 @@ class ApplicationLetterUpdate(BaseModel):
     metadata: Optional[dict] = None
 
 
+class AppliedSuggestionMetadata(BaseModel):
+    """Schema for applied suggestion metadata to prevent unbounded JSON"""
+    id: str = Field(..., max_length=100)
+    appliedAt: str = Field(..., max_length=50)
+    historyEntryId: Optional[str] = Field(None, max_length=50)
+
+
 class ApplicationLetterAutoSave(BaseModel):
     """Request model for auto-saving letter content"""
-    content: str
-    rejected_suggestion_ids: Optional[List[str]] = None
-    applied_suggestion_metadata: Optional[List[dict]] = None
+    content: str = Field(..., max_length=50_000)  # ~10k words max
+    rejected_suggestion_ids: Optional[List[str]] = Field(None, max_items=1000)
+    applied_suggestion_metadata: Optional[List[AppliedSuggestionMetadata]] = Field(None, max_items=1000)
 
 
 class ApplicationLetterResponse(BaseModel):
