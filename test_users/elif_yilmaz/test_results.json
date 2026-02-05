@@ -1,0 +1,22 @@
+{
+  "user": "elif_yilmaz",
+  "user_id": "f28af88e-df48-40df-82b9-1f5e8734cc5c",
+  "test_date": "2026-01-22T10:13:20.115952",
+  "conversations": [
+    {
+      "question": "I'm interested in game development and want to study computer science in Germany. What programs would you recommend for me at TUM?",
+      "answer": "Based on your interest in game development and computer science, I would recommend the Master of Science program in Informatics: Games Engineering at the Technical University of Munich (TUM). This program is specifically designed for students who want to pursue a career in game development and combines computer science with game-related technologies.\n\nThe program covers topics such as game engines, computer graphics, and game development methodologies, and is taught in English. The program also includes an aptitude assessment process, which includes a written statement (max. 2 DIN-A4 pages) in English or German, explaining why you are a good fit for the program.\n\nYou can find more information about the program on the TUM website: [informatics-games-engineering-master-of-science-msc](https://www.tum.de/en/studies/master-studies/informatics-games-engineering-master-of-science-msc/).",
+      "timestamp": "2026-01-22T10:13:14.345764"
+    },
+    {
+      "question": "What are the admission requirements for the Informatics Bachelor program? Do I need to know German?",
+      "answer": "The Informatics Bachelor of Science (BSc) at TUM requires German: https://www.tum.de/en/studies/application/application-info-portal/admission-requirements/language-certificates#c48038. (Source: informatics-bachelor-of-science-bsc - Key Data)",
+      "timestamp": "2026-01-22T10:13:18.618560"
+    },
+    {
+      "question": "When should I apply for Fall 2025 intake?",
+      "answer": "I don't know enough information to answer your question. Please provide more details or contact TUM directly at study@tum.de for detailed assistance.",
+      "timestamp": "2026-01-22T10:13:20.115782"
+    }
+  ]
+}
