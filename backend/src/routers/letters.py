@@ -503,7 +503,7 @@ async def _analyze_grammar(content: str, user_profile: str) -> List[Dict]:
     
     user_message = f"""{FEW_SHOT_GRAMMAR_EXAMPLES}
 
-Now analyze this letter. Return ONLY the top 8 most critical grammar/spelling errors.
+Now analyze this letter. Return ONLY the top 30 most critical grammar/spelling errors.
 
 VALIDATION CHECKLIST for EACH suggestion:
 1. Does replacement preserve 70%+ of original words? If NO → set replacement to null
