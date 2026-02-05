@@ -35,7 +35,6 @@ class TestAnalysisAuthorization:
     async def test_analyze_requires_letter_ownership(self):
         """User A cannot analyze user B's letter"""
         user_a_id = str(uuid4())
-        user_b_id = str(uuid4())
         letter_id = str(uuid4())
         
         request = LetterAnalysisRequest(
