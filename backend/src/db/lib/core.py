@@ -1,10 +1,15 @@
+import httpx
 from supabase import create_client
+from supabase.lib.client_options import SyncClientOptions
 from uuid import uuid4
 from datetime import date, datetime
 from core.config import get_settings
 
 settings = get_settings()
-supabase = create_client(settings.supabase_url, settings.supabase_service_key)
+# Use HTTP/1.1 to avoid "Server disconnected" (HTTP/2 connection reuse issues with Supabase)
+_httpx_client = httpx.Client(http2=False)
+_options = SyncClientOptions(httpx_client=_httpx_client)
+supabase = create_client(settings.supabase_url, settings.supabase_service_key, options=_options)
 
 # ---------- USERS ----------
 def upsert_user(auth_uid: str, first_name: str, last_name: str, **extras):

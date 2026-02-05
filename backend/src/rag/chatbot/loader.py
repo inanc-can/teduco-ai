@@ -93,7 +93,7 @@ class DocumentLoader:
             docs = self._load_from_cache(program_dir, slug)
             documents.extend(docs)
         
-        print(f"  [LOADER] ✓ Loaded {len(documents)} total document from local cache.")
+        print(f"  [LOADER] [OK] Loaded {len(documents)} total document from local cache.")
         return documents
         
     # def load_from_crawler(
@@ -141,7 +141,7 @@ class DocumentLoader:
     #             docs = self._crawl_and_load(slug)
     #             documents.extend(docs)
         
-    #     print(f"  [LOADER] ✓ Loaded {len(documents)} total documents")
+    #     print(f"  [LOADER] [OK] Loaded {len(documents)} total documents")
     #     return documents
     
     # def _crawl_and_load(self, program_slug: str) -> List[Document]:
@@ -170,7 +170,7 @@ class DocumentLoader:
 
     #     except Exception as e:
     #         traceback.print_exc()
-    #         print(f"  [LOADER] ✗ Error crawling {program_slug}: {e}")
+    #         print(f"  [LOADER] [FAIL] Error crawling {program_slug}: {e}")
 
     #     return documents
     

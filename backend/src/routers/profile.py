@@ -2,7 +2,7 @@
 Profile, settings, and onboarding router.
 """
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from core.dependencies import get_current_user
 from core.schemas import UserProfileResponse, UserProfileUpdate
 from db.lib.core import (
@@ -17,6 +17,81 @@ from db.lib.core import (
 router = APIRouter(
     tags=["profile"]
 )
+
+
+def _embed_user_profile_background(user_id: str):
+    """Background task: generate a text summary of the user profile, embed it, store in rag_user_profile_chunks."""
+    try:
+        from rag.chatbot.db_ops import upsert_user_profile_chunks
+        from langchain_core.documents import Document
+        from langchain_huggingface import HuggingFaceEmbeddings
+
+        profile = get_user_profile(user_id)
+        if not profile or not profile.get("user"):
+            return
+
+        user = profile["user"]
+        edu = profile.get("education", {}) or {}
+        prefs = profile.get("preferences", {}) or {}
+
+        # Build a rich text summary of the user profile
+        parts = []
+        parts.append(f"Student Profile: {user.get('first_name', '')} {user.get('last_name', '')}")
+        if user.get("applicant_type"):
+            parts.append(f"Applicant Type: {user['applicant_type']}")
+        if user.get("current_city"):
+            parts.append(f"Location: {user['current_city']}")
+
+        if edu.get("type") == "university":
+            parts.append(f"University: {edu.get('university_name', '')}")
+            parts.append(f"Program: {edu.get('university_program', '')}")
+            if edu.get("gpa"):
+                parts.append(f"GPA: {edu['gpa']}")
+            if edu.get("credits_completed"):
+                parts.append(f"Credits: {edu['credits_completed']}")
+            if edu.get("expected_graduation"):
+                parts.append(f"Expected Graduation: {edu['expected_graduation']}")
+            if edu.get("research_focus"):
+                parts.append(f"Research Focus: {edu['research_focus']}")
+            if edu.get("portfolio_link"):
+                parts.append(f"Portfolio: {edu['portfolio_link']}")
+        elif edu.get("type") == "high-school":
+            parts.append(f"High School: {edu.get('high_school_name', '')}")
+            if edu.get("gpa"):
+                parts.append(f"GPA: {edu['gpa']}/{edu.get('gpa_scale', '')}")
+            if edu.get("grad_year"):
+                parts.append(f"Graduation Year: {edu['grad_year']}")
+            if edu.get("extracurriculars"):
+                parts.append(f"Extracurriculars: {edu['extracurriculars']}")
+
+        if prefs.get("desired_countries"):
+            parts.append(f"Desired Countries: {', '.join(prefs['desired_countries'])}")
+        if prefs.get("desired_fields"):
+            parts.append(f"Desired Fields: {', '.join(prefs['desired_fields'])}")
+        if prefs.get("target_programs"):
+            parts.append(f"Target Programs: {', '.join(prefs['target_programs'])}")
+        if prefs.get("additional_notes"):
+            parts.append(f"Notes: {prefs['additional_notes']}")
+
+        summary_text = "\n".join(parts)
+        docs = [Document(page_content=summary_text, metadata={"source": "user_profile", "user_id": user_id})]
+
+        import pathlib
+        cache_dir = "/app/.hf_cache" if pathlib.Path("/app/.hf_cache").exists() else None
+        embeddings_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            **({"cache_folder": cache_dir} if cache_dir else {}),
+            encode_kwargs={"normalize_embeddings": True},
+            model_kwargs={"device": "cpu"},
+        )
+        chunk_embeddings = embeddings_model.embed_documents([summary_text])
+        upsert_user_profile_chunks(user_id, docs, chunk_embeddings)
+        print(f"[PROFILE EMBED] Embedded profile for user {user_id}")
+
+    except Exception as e:
+        import traceback
+        print(f"[PROFILE EMBED] Error: {e}")
+        traceback.print_exc()
 
 
 def _build_profile_response(user_id: str) -> UserProfileResponse:
@@ -160,9 +235,16 @@ def get_onboarding_status(user_id: str = Depends(get_current_user)):
 
 
 @router.post("/onboarding")
-def onboarding(payload: UserProfileUpdate, user_id: str = Depends(get_current_user)):
-    """Onboarding endpoint (calls update_profile)."""
-    return _update_profile_data(user_id, payload)
+def onboarding(
+    payload: UserProfileUpdate,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_current_user)
+):
+    """Onboarding endpoint (calls update_profile, then embeds profile for RAG)."""
+    result = _update_profile_data(user_id, payload)
+    # Embed the profile in the background for RAG retrieval
+    background_tasks.add_task(_embed_user_profile_background, user_id)
+    return result
 
 
 @router.post("/onboarding/profile")
