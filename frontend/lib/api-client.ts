@@ -453,7 +453,7 @@ class ApiClient {
   // Application Letters API Methods
   // ======================
 
-  async analyzeApplicationLetter(data: { content: string; programSlug?: string }) {
+  async analyzeApplicationLetter(data: { letterId: string; content: string; programSlug?: string }) {
     return this.post<{
       suggestions: Array<{
         id: string

@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import type { ApplicationLetter } from '@/lib/types/letters';
 
 export interface AnalyzeLetterParams {
+  letterId: string;
   content: string;
   programSlug?: string;
   phase?: 'objective' | 'subjective' | 'both';

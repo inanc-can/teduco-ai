@@ -164,6 +164,7 @@ export default function LetterEditorPage({
     triggerAnalysis,
     clearSuggestions,
   } = useLetterAnalysis({
+    letterId,
     content,
     programSlug,
     onAutoSave: handleAutoSave,

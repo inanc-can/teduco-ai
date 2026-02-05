@@ -21,6 +21,7 @@ interface ParagraphCache {
 }
 
 interface UseLetterAnalysisOptions {
+  letterId: string; // Required for API authorization
   content: string;
   programSlug?: string;
   onAutoSave?: (content: string) => Promise<void>;
@@ -50,6 +51,7 @@ interface UseLetterAnalysisReturn {
 const PARAGRAPH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 export function useLetterAnalysis({
+  letterId,
   content,
   programSlug,
   onAutoSave,
@@ -213,7 +215,7 @@ export function useLetterAnalysis({
         
         // Analyze only changed content
         analyzeWithAPI(
-          { content: analyzableContent, programSlug, phase: 'both' },
+          { letterId, content: analyzableContent, programSlug, phase: 'both' },
           {
             onSuccess: (data) => {
               console.log('[useLetterAnalysis] Partial analysis complete:', {
@@ -281,7 +283,7 @@ export function useLetterAnalysis({
         console.log('[useLetterAnalysis] Full analysis - no cache benefit');
         
         analyzeWithAPI(
-          { content, programSlug, phase: 'both' },
+          { letterId, content, programSlug, phase: 'both' },
           {
             onSuccess: (data) => {
               console.log('[useLetterAnalysis] Analysis complete:', { 
