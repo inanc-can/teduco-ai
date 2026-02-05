@@ -1304,6 +1304,11 @@ export default function LetterEditorPage({
                     </AccordionTrigger>
                     <AccordionContent className="space-y-3 pt-2 pb-4">
                       {typeSuggestions.map((suggestion) => {
+                        // Defensive check: Skip rendering if replacement is null (unless strategic advisory)
+                        if (!suggestion.replacement && suggestion.type !== 'strategic') {
+                          return null;
+                        }
+                        
                         const suggestionState = suggestionStates.get(suggestion.id);
                         const isApplied = suggestionState === 'applied';
                         const conflictingIds = suggestionConflicts.get(suggestion.id) || [];
