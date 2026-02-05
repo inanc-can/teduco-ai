@@ -8,7 +8,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 
 from routers.letters import analyze_letter
-from routers.application_letters import auto_save_letter, AppliedSuggestionMetadata
+from routers.application_letters import AppliedSuggestionMetadata
 from core.models import CamelCaseModel
 
 
