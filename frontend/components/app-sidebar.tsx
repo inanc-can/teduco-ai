@@ -28,11 +28,6 @@ const data = {
       icon: Home,
     },
     {
-      title: "Progress Tracking",
-      url: "/progress-tracking",
-      icon: Sparkles,
-    },
-    {
       title: "Edit Letters",
       url: "/edit",
       icon: FileEdit,
